@@ -236,6 +236,12 @@ add_executable(kvrocks2redis ${KVROCKS2REDIS_SRCS})
 
 target_link_libraries(kvrocks2redis PRIVATE kvrocks_objs ${EXTERNAL_LIBS})
 
+# make sst file tool
+file(GLOB MAKESST_SRCS utils/make-sst/*.cc)
+add_executable(make-sst ${MAKESST_SRCS})
+
+target_link_libraries(make-sst PRIVATE kvrocks_objs ${EXTERNAL_LIBS})
+
 # kvrocks unit tests
 file(GLOB_RECURSE TESTS_SRCS tests/cppunit/*.cc)
 add_executable(unittest ${TESTS_SRCS})
