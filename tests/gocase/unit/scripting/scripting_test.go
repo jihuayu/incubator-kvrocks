@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/apache/incubator-kvrocks/tests/gocase/util"
+	"github.com/apache/kvrocks/tests/gocase/util"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -36,6 +36,10 @@ func TestScripting(t *testing.T) {
 	ctx := context.Background()
 	rdb := srv.NewClient()
 	defer func() { require.NoError(t, rdb.Close()) }()
+
+	t.Run("EVAL - numkeys can't be negative", func(t *testing.T) {
+		util.ErrorRegexp(t, rdb.Do(ctx, "EVAL", `return redis.call('PING');`, "-1").Err(), ".*can't be negative.*")
+	})
 
 	t.Run("EVAL - Does Lua interpreter replies to our requests?", func(t *testing.T) {
 		r := rdb.Eval(ctx, `return 'hello'`, []string{})

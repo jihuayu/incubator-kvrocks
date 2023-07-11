@@ -144,6 +144,7 @@ struct Config {
   int pipeline_size;
   int sequence_gap;
 
+  bool redis_cursor_compatible = false;
   int log_retention_days;
   // profiling
   int profiling_sample_ratio = 0;
@@ -155,6 +156,7 @@ struct Config {
   struct RocksDB {
     int block_size;
     bool cache_index_and_filter_blocks;
+    int block_cache_size;
     int metadata_block_cache_size;
     int subkey_block_cache_size;
     bool share_metadata_and_subkey_block_cache;

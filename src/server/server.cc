@@ -28,6 +28,8 @@
 #include <sys/utsname.h>
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <iomanip>
 #include <jsoncons/json.hpp>
 #include <memory>
@@ -59,6 +61,9 @@ Server::Server(engine::Storage *storage, Config *config)
     stats.commands_stats[iter.first].calls = 0;
     stats.commands_stats[iter.first].latency = 0;
   }
+
+  // init cursor_dict_
+  cursor_dict_ = std::make_unique<CursorDictType>();
 
 #ifdef ENABLE_OPENSSL
   // init ssl context
@@ -1678,12 +1683,21 @@ void Server::UpdateWatchedKeysFromArgs(const std::vector<std::string> &args, con
   if (attr.IsWrite() && watched_key_size_ > 0) {
     if (attr.key_range.first_key > 0) {
       updateWatchedKeysFromRange(args, attr.key_range);
-    } else if (attr.key_range.first_key < 0) {
+    } else if (attr.key_range.first_key == -1) {
       redis::CommandKeyRange range = attr.key_range_gen(args);
 
       if (range.first_key > 0) {
         updateWatchedKeysFromRange(args, range);
       }
+    } else if (attr.key_range.first_key == -2) {
+      std::vector<redis::CommandKeyRange> vec_range = attr.key_range_vec_gen(args);
+
+      for (const auto &range : vec_range) {
+        if (range.first_key > 0) {
+          updateWatchedKeysFromRange(args, range);
+        }
+      }
+
     } else {
       // support commands like flushdb (write flag && key range {0,0,0})
       updateAllWatchedKeys();
@@ -1752,4 +1766,54 @@ std::list<std::pair<std::string, uint32_t>> Server::GetSlaveHostAndPort() {
   }
   slave_threads_mu_.unlock();
   return result;
+}
+
+// The numeric cursor consists of a 16-bit counter, a 16-bit time stamp, a 29-bit hash,and a 3-bit cursor type. The
+// hash is used to prevent information leakage. The time_stamp is used to prevent the generation of the same cursor in
+// the extremely short period before and after a restart.
+NumberCursor::NumberCursor(CursorType cursor_type, uint16_t counter, const std::string &key_name) {
+  auto hash = static_cast<uint32_t>(std::hash<std::string>{}(key_name));
+  auto time_stamp = static_cast<uint16_t>(util::GetTimeStamp());
+  // make hash top 3-bit zero
+  constexpr uint64_t hash_mask = 0x1FFFFFFFFFFFFFFF;
+  cursor_ = static_cast<uint64_t>(counter) | static_cast<uint64_t>(time_stamp) << 16 |
+            (static_cast<uint64_t>(hash) << 32 & hash_mask) | static_cast<uint64_t>(cursor_type) << 61;
+}
+
+bool NumberCursor::IsMatch(const CursorDictElement &element, CursorType cursor_type) const {
+  return cursor_ == element.cursor.cursor_ && cursor_type == getCursorType();
+}
+
+std::string Server::GenerateCursorFromKeyName(const std::string &key_name, CursorType cursor_type, const char *prefix) {
+  if (!config_->redis_cursor_compatible) {
+    // add prefix for SCAN
+    return prefix + key_name;
+  }
+  auto counter = cursor_counter_.fetch_add(1);
+  auto number_cursor = NumberCursor(cursor_type, counter, key_name);
+  cursor_dict_->at(number_cursor.GetIndex()) = {number_cursor, key_name};
+  return number_cursor.ToString();
+}
+
+std::string Server::GetKeyNameFromCursor(const std::string &cursor, CursorType cursor_type) {
+  // When cursor is 0, cursor string is empty
+  if (cursor.empty() || !config_->redis_cursor_compatible) {
+    return cursor;
+  }
+
+  auto s = ParseInt<uint64_t>(cursor, 10);
+  // When Cursor 0 or not a Integer return empty string.
+  // Although the parameter 'cursor' is not expected to be 0, we still added a check for 0 to increase the robustness of
+  // the code.
+  if (!s.IsOK() || *s == 0) {
+    return {};
+  }
+  auto number_cursor = NumberCursor(*s);
+  // Because the index information is fully stored in the cursor, we can directly obtain the index from the cursor.
+  auto item = cursor_dict_->at(number_cursor.GetIndex());
+  if (number_cursor.IsMatch(item, cursor_type)) {
+    return item.key_name;
+  }
+
+  return {};
 }

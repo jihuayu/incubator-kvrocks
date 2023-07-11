@@ -267,6 +267,8 @@ class CommandInfo : public Commander {
     std::string section = "all";
     if (args_.size() == 2) {
       section = util::ToLower(args_[1]);
+    } else if (args_.size() > 2) {
+      return {Status::RedisParseErr, errInvalidSyntax};
     }
     std::string info;
     svr->GetInfo(conn->GetNamespace(), section, &info);
@@ -291,7 +293,14 @@ class CommandDisk : public Commander {
 
     uint64_t result = 0;
     s = disk_db.GetKeySize(args_[2], type, &result);
-    if (!s.ok()) return {Status::RedisExecErr, s.ToString()};
+    if (!s.ok()) {
+      // Redis returns the Nil string when the key does not exist
+      if (s.IsNotFound()) {
+        *output = redis::NilString();
+        return Status::OK();
+      }
+      return {Status::RedisExecErr, s.ToString()};
+    }
 
     *output = redis::Integer(result);
     return Status::OK();
@@ -760,11 +769,11 @@ class CommandScan : public CommandScanBase {
     return Commander::Parse(args);
   }
 
-  static std::string GenerateOutput(const std::vector<std::string> &keys, std::string end_cursor) {
+  static std::string GenerateOutput(Server *svr, const std::vector<std::string> &keys, const std::string &end_cursor) {
     std::vector<std::string> list;
     if (!end_cursor.empty()) {
-      end_cursor = kCursorPrefix + end_cursor;
-      list.emplace_back(redis::BulkString(end_cursor));
+      list.emplace_back(
+          redis::BulkString(svr->GenerateCursorFromKeyName(end_cursor, CursorType::kTypeBase, kCursorPrefix)));
     } else {
       list.emplace_back(redis::BulkString("0"));
     }
@@ -776,14 +785,15 @@ class CommandScan : public CommandScanBase {
 
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
     redis::Database redis_db(svr->storage, conn->GetNamespace());
+    auto key_name = svr->GetKeyNameFromCursor(cursor_, CursorType::kTypeBase);
+
     std::vector<std::string> keys;
-    std::string end_cursor;
-    auto s = redis_db.Scan(cursor_, limit_, prefix_, &keys, &end_cursor);
+    std::string end_key;
+    auto s = redis_db.Scan(key_name, limit_, prefix_, &keys, &end_key);
     if (!s.ok()) {
       return {Status::RedisExecErr, s.ToString()};
     }
-
-    *output = GenerateOutput(keys, end_cursor);
+    *output = GenerateOutput(svr, keys, end_key);
     return Status::OK();
   }
 };
