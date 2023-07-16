@@ -637,4 +637,9 @@ Status WriteBatchLogData::Decode(const rocksdb::Slice &blob) {
 
   return Status::OK();
 }
+
+rocksdb::Status Database::Ingest(const std::string& path){
+  rocksdb::IngestExternalFileOptions ifo;
+  return storage_->GetDB()->IngestExternalFile(storage_->GetCFHandle(engine::kMetadataColumnFamilyName),{path},ifo);
+}
 }  // namespace redis

@@ -56,7 +56,7 @@ class Database {
   rocksdb::Status ClearKeysOfSlot(const rocksdb::Slice &ns, int slot);
   rocksdb::Status GetSlotKeysInfo(int slot, std::map<int, uint64_t> *slotskeys, std::vector<std::string> *keys,
                                   int count);
-
+  rocksdb::Status Ingest(const std::string& path);
  protected:
   engine::Storage *storage_;
   rocksdb::ColumnFamilyHandle *metadata_cf_handle_;

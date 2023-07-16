@@ -172,6 +172,21 @@ class CommandFlushDB : public Commander {
   }
 };
 
+class CommandIngest : public Commander {
+ public:
+  Status Execute(Server *svr, Connection *conn, std::string *output) override {
+     rocksdb::IngestExternalFileOptions ifo;
+    rocksdb::Status s = svr->storage->GetDB()->IngestExternalFile(svr->storage->GetCFHandle(engine::kMetadataColumnFamilyName),{"/workspace/incubator-kvrocks/build/file1.sst"},ifo);
+
+    if (s.ok()) {
+      *output = redis::SimpleString("OK");
+      return Status::OK();
+    }
+
+    return {Status::RedisExecErr, s.ToString()};
+  }
+};
+
 class CommandFlushAll : public Commander {
  public:
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
@@ -1005,6 +1020,7 @@ REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandAuth>("auth", 2, "read-only ok-loadin
                         MakeCmdAttr<CommandMemory>("memory", 3, "read-only", 0, 0, 0),
                         MakeCmdAttr<CommandHello>("hello", -1, "read-only ok-loading", 0, 0, 0),
 
+                        MakeCmdAttr<CommandIngest>("ingest", 1, "read-only no-script", 0, 0, 0),
                         MakeCmdAttr<CommandCompact>("compact", 1, "read-only no-script", 0, 0, 0),
                         MakeCmdAttr<CommandBGSave>("bgsave", 1, "read-only no-script", 0, 0, 0),
                         MakeCmdAttr<CommandFlushBackup>("flushbackup", 1, "read-only no-script", 0, 0, 0),
