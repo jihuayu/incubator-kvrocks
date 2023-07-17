@@ -383,6 +383,7 @@ rocksdb::Status String::MSet(const std::vector<StringPair> &pairs, uint64_t ttl)
     WriteBatchLogData log_data(kRedisString);
     batch->PutLogData(log_data.Encode());
     AppendNamespacePrefix(pair.key, &ns_key);
+    LOG(INFO)<<ns_key<<"   "<<namespace_;
     batch->Put(metadata_cf_handle_, ns_key, bytes);
     LockGuard guard(storage_->GetLockManager(), ns_key);
     auto s = storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());

@@ -266,12 +266,14 @@ rocksdb::Status Database::Scan(const std::string &cursor, uint64_t limit, const 
   uint16_t slot_id = slot_start;
   while (true) {
     for (; iter->Valid() && cnt < limit; iter->Next()) {
+
       if (!ns_prefix.empty() && !iter->key().starts_with(ns_prefix)) {
         break;
       }
       Metadata metadata(kRedisNone, false);
       value = iter->value().ToString();
       metadata.Decode(value);
+      LOG(INFO)<<iter->key().ToString()<< "   "<<metadata.flags << "  "<<metadata.flags;
       if (metadata.Expired()) continue;
       ExtractNamespaceKey(iter->key(), &ns, &user_key, storage_->IsSlotIdEncoded());
       keys->emplace_back(user_key);
