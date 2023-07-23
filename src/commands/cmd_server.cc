@@ -176,7 +176,8 @@ class CommandIngest : public Commander {
  public:
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
      rocksdb::IngestExternalFileOptions ifo;
-    rocksdb::Status s = svr->storage->GetDB()->IngestExternalFile(svr->storage->GetCFHandle(engine::kMetadataColumnFamilyName),{"./file1.sst"},ifo);
+    rocksdb::Status s = svr->storage->GetDB()->IngestExternalFile(svr->storage->GetCFHandle(engine::kMetadataColumnFamilyName),
+    {"./file1.sst","./file1.sst","./file1.sst","./file1.sst"},ifo);
 
     if (s.ok()) {
       *output = redis::SimpleString("OK");
