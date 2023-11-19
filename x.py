@@ -61,7 +61,7 @@ def run(*args: str, msg: Optional[str] = None, verbose: bool = False, **kwargs: 
 
     p = Popen(args, **kwargs)
     code = p.wait()
-    if code != 0:
+    if code != 0 and verbose:
         err = f"\nfailed to run: {args}\nexit with code: {code}\n"
         if msg:
             err += f"error message: {msg}\n"
@@ -148,7 +148,7 @@ def get_source_files(dir: Path) -> List[str]:
     ]
 
 
-def clang_format(clang_format_path: str, fix: bool = False) -> None:
+def clang_format(clang_format_path: str, fix: bool = False,verbose:bool = False) -> None:
     command = find_command(clang_format_path, msg="clang-format is required")
 
     version_res = run_pipe(command, '--version').read().strip()
@@ -164,10 +164,10 @@ def clang_format(clang_format_path: str, fix: bool = False) -> None:
     else:
         options = ['--dry-run', '--Werror']
 
-    run(command, *options, *sources, verbose=True, cwd=basedir)
+    run(command, *options, *sources, verbose=verbose, cwd=basedir)
 
 
-def clang_tidy(dir: str, jobs: Optional[int], clang_tidy_path: str, run_clang_tidy_path: str, fix: bool) -> None:
+def clang_tidy(dir: str, jobs: Optional[int], clang_tidy_path: str, run_clang_tidy_path: str, fix: bool,verbose:bool = False) -> None:
     # use the run-clang-tidy Python script provided by LLVM Clang
     run_command = find_command(run_clang_tidy_path, msg="run-clang-tidy is required")
     tidy_command = find_command(clang_tidy_path, msg="clang-tidy is required")
@@ -192,7 +192,7 @@ def clang_tidy(dir: str, jobs: Optional[int], clang_tidy_path: str, run_clang_ti
 
     options.append(f'-header-filter={"|".join(regexes)}')
 
-    run(run_command, *options, *regexes, verbose=True, cwd=basedir)
+    run(run_command, *options, *regexes, verbose=verbose, cwd=basedir)
 
 
 def golangci_lint(golangci_lint_path: str) -> None:
@@ -320,6 +320,8 @@ if __name__ == '__main__':
     parser_check_format.set_defaults(func=lambda **args: clang_format(**args, fix=False))
     parser_check_format.add_argument('--clang-format-path', default='clang-format',
                                      help="path of clang-format used to check source")
+    parser_check_format.add_argument('-verbose', default=False, action='store_true',
+                              help='open cmd verbose')
     parser_check_tidy = parser_check_subparsers.add_parser(
         'tidy',
         description="Check code with clang-tidy",
@@ -336,6 +338,8 @@ if __name__ == '__main__':
                                    help="path of run-clang-tidy used to check source")
     parser_check_tidy.add_argument('--fix', default=False, action='store_true',
                               help='automatically fix codebase via clang-tidy suggested changes')
+    parser_check_tidy.add_argument('-verbose', default=False, action='store_true',
+                              help='open cmd verbose')
     parser_check_golangci_lint = parser_check_subparsers.add_parser(
         'golangci-lint',
         description="Check code with golangci-lint (https://golangci-lint.run/)",
