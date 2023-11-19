@@ -82,10 +82,10 @@ jobs:
       - name: Check with clang-format
         id: check-format
         run: ./x.py check format --clang-format-path clang-format-14
+      - name: Check with clang-tidy(setup)
+        run: ./x.py build --skip-build
       - name: Check with clang-tidy
-        run: |
-          ./x.py build --skip-build
-          ./x.py check tidy -j $(nproc) --clang-tidy-path clang-tidy-14 --run-clang-tidy-path run-clang-tidy-14
+        run: ./x.py check tidy -j $(nproc) --clang-tidy-path clang-tidy-14 --run-clang-tidy-path run-clang-tidy-14
       - name: Lint with golangci-lint
         run: ./x.py check golangci-lint
 
