@@ -72,7 +72,8 @@ class BloomChain : public Database {
   rocksdb::Status Exists(const Slice &user_key, const std::string &item, bool *exist);
   rocksdb::Status MExists(const Slice &user_key, const std::vector<std::string> &items, std::vector<bool> *exists);
   rocksdb::Status Info(const Slice &user_key, BloomFilterInfo *info);
-
+  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  
  private:
   rocksdb::Status getBloomChainMetadata(const Slice &ns_key, BloomChainMetadata *metadata);
   std::string getBFKey(const Slice &ns_key, const BloomChainMetadata &metadata, uint16_t filters_index);

@@ -33,10 +33,16 @@
 #include "status.h"
 #include "storage/redis_metadata.h"
 #include "time_util.h"
+#include "types/redis_bitmap.h"
+#include "types/redis_bloom_chain.h"
 #include "types/redis_hash.h"
+#include "types/redis_json.h"
 #include "types/redis_list.h"
 #include "types/redis_set.h"
+#include "types/redis_sortedint.h"
+#include "types/redis_stream.h"
 #include "types/redis_string.h"
+#include "types/redis_zset.h"
 
 namespace redis {
 
@@ -602,18 +608,44 @@ rocksdb::Status Database::Rename(const std::string &from_key, const std::string 
     return s;
   }
   if (type == kRedisString) {
-    redis::String string_db(this->storage_, this->namespace_);
-    return string_db.Rename(from_key, to_key);
+    redis::String db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
   }
-
+  if (type == kRedisHash) {
+    redis::Hash db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }
   if (type == kRedisList) {
-    redis::List list_db(this->storage_, this->namespace_);
-    return list_db.Rename(from_key, to_key);
+    redis::List db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
   }
-
   if (type == kRedisSet) {
-    redis::Set list_db(this->storage_, this->namespace_);
-    return list_db.Rename(from_key, to_key);
+    redis::Set db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }
+  if (type == kRedisZSet) {
+    redis::ZSet db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }  
+  if (type == kRedisBitmap) {
+    redis::Bitmap db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }
+    if (type == kRedisSortedint) {
+    redis::Sortedint db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }
+  if (type == kRedisStream) {
+    redis::Stream db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  } 
+  if (type == kRedisBloomFilter) {
+    redis::BloomChain db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
+  }
+  if (type == kRedisJson) {
+    redis::Json db(this->storage_, this->namespace_);
+    return db.Rename(from_key, to_key);
   }
 
   return rocksdb::Status::NotFound();
