@@ -28,9 +28,15 @@
 #include "db_util.h"
 #include "parse_util.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/status.h"
 #include "server/server.h"
+#include "status.h"
 #include "storage/redis_metadata.h"
 #include "time_util.h"
+#include "types/redis_hash.h"
+#include "types/redis_list.h"
+#include "types/redis_set.h"
+#include "types/redis_string.h"
 
 namespace redis {
 
@@ -587,6 +593,30 @@ rocksdb::Status Database::ClearKeysOfSlot(const rocksdb::Slice &ns, int slot) {
     return s;
   }
   return rocksdb::Status::OK();
+}
+
+rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key) {
+  RedisType type = kRedisNone;
+  auto s = Type(from_key, &type);
+  if (!s.ok()) {
+    return s;
+  }
+  if (type == kRedisString) {
+    redis::String string_db(this->storage_, this->namespace_);
+    return string_db.Rename(from_key, to_key);
+  }
+
+  if (type == kRedisList) {
+    redis::List list_db(this->storage_, this->namespace_);
+    return list_db.Rename(from_key, to_key);
+  }
+
+  if (type == kRedisSet) {
+    redis::Set list_db(this->storage_, this->namespace_);
+    return list_db.Rename(from_key, to_key);
+  }
+
+  return rocksdb::Status::NotFound();
 }
 
 rocksdb::Status Database::GetSlotKeysInfo(int slot, std::map<int, uint64_t> *slotskeys, std::vector<std::string> *keys,

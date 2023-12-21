@@ -21,6 +21,7 @@
 #include "redis_list.h"
 
 #include <cstdlib>
+#include <string>
 #include <utility>
 
 #include "db_util.h"
@@ -660,4 +661,38 @@ rocksdb::Status List::Trim(const Slice &user_key, int start, int stop) {
   batch->Put(metadata_cf_handle_, ns_key, bytes);
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
+
+rocksdb::Status List::Rename(const std::string &from_key, const std::string &to_key) {
+  std::string from_ns_key = AppendNamespacePrefix(from_key);
+  std::string to_ns_key = AppendNamespacePrefix(to_key);
+
+  ListMetadata metadata(false);
+  rocksdb::Status s = GetMetadata(from_ns_key, &metadata);
+  if (!s.ok()) return s;
+  std::string raw_value;
+  metadata.Encode(&raw_value);
+
+  auto batch = storage_->GetWriteBatchBase();
+  WriteBatchLogData log_data(kRedisList, {"kRedisListRename"});
+  batch->PutLogData(log_data.Encode());
+
+  batch->Delete(metadata_cf_handle_, from_ns_key);
+  batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
+
+  // rename each subkey
+  for (auto i = metadata.head; i < metadata.tail; i++) {
+    std::string buf;
+    PutFixed64(&buf, i);
+    std::string from_sub_key = InternalKey(from_ns_key, buf, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+
+    std::string elem;
+    s = storage_->Get(rocksdb::ReadOptions(), from_sub_key, &elem);
+    if (!s.ok()) return s;
+    std::string to_sub_key = InternalKey(to_ns_key, buf, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+    batch->Put(to_sub_key, elem);
+  }
+
+  return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
+}
+
 }  // namespace redis

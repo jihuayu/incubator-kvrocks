@@ -23,10 +23,13 @@
 #include "commander.h"
 #include "commands/ttl_util.h"
 #include "error_constants.h"
+#include "glog/logging.h"
 #include "server/redis_reply.h"
 #include "server/server.h"
+#include "status.h"
 #include "storage/redis_db.h"
 #include "time_util.h"
+#include "types/redis_string.h"
 
 namespace redis {
 
@@ -273,6 +276,21 @@ class CommandDel : public Commander {
   }
 };
 
+class CommandRename : public Commander {
+ public:
+  Status Execute(Server *srv, Connection *conn, std::string *output) override {
+    uint64_t cnt = 0;
+    redis::Database redis(srv->storage, conn->GetNamespace());
+
+    LOG(INFO) << args_[1] << "|" << args_[2] << std::endl;
+    auto s = redis.Rename(args_[1], args_[2]);
+    if (!s.ok()) return {Status::RedisExecErr, s.ToString()};
+
+    *output = redis::Integer(cnt);
+    return Status::OK();
+  }
+};
+
 REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandTTL>("ttl", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandPTTL>("pttl", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandType>("type", 2, "read-only", 1, 1, 1),
@@ -285,6 +303,7 @@ REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandTTL>("ttl", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandExpireAt>("expireat", 3, "write", 1, 1, 1),
                         MakeCmdAttr<CommandPExpireAt>("pexpireat", 3, "write", 1, 1, 1),
                         MakeCmdAttr<CommandDel>("del", -2, "write", 1, -1, 1),
-                        MakeCmdAttr<CommandDel>("unlink", -2, "write", 1, -1, 1), )
+                        MakeCmdAttr<CommandDel>("unlink", -2, "write", 1, -1, 1),
+                        MakeCmdAttr<CommandRename>("rename", 3, "write", 1, -1, 1), )
 
 }  // namespace redis
