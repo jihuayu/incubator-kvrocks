@@ -63,7 +63,7 @@ class Database {
   [[nodiscard]] rocksdb::Status GetSlotKeysInfo(int slot, std::map<int, uint64_t> *slotskeys,
                                                 std::vector<std::string> *keys, int count);
   [[nodiscard]] rocksdb::Status KeyExist(const std::string &key);
-  [[nodiscard]] rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  [[nodiscard]] rocksdb::Status Rename(const std::string &from_key, const std::string &to_key, bool nx = false);
 
  protected:
   engine::Storage *storage_;
@@ -71,6 +71,13 @@ class Database {
   std::string namespace_;
 
   friend class LatestSnapShot;
+
+ private:
+  template <class T>
+  [[nodiscard]] rocksdb::Status callRename(const std::string &from_key, const std::string &to_key) {
+    T t = T(storage_, namespace_);
+    return t.Rename(from_key, to_key);
+  }
 };
 
 class LatestSnapShot {

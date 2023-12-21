@@ -601,54 +601,47 @@ rocksdb::Status Database::ClearKeysOfSlot(const rocksdb::Slice &ns, int slot) {
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key) {
+rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key, bool nx) {
   RedisType type = kRedisNone;
+  std::string from_ns_key = AppendNamespacePrefix(from_key);
+  std::string to_ns_key = AppendNamespacePrefix(to_key);
+  std::vector<std::string> lock_keys = {from_ns_key, to_ns_key};
+  MultiLockGuard guard(storage_->GetLockManager(), lock_keys);
   auto s = Type(from_key, &type);
-  if (!s.ok()) {
-    return s;
-  }
-  if (type == kRedisString) {
-    redis::String db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisHash) {
-    redis::Hash db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisList) {
-    redis::List db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisSet) {
-    redis::Set db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisZSet) {
-    redis::ZSet db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }  
-  if (type == kRedisBitmap) {
-    redis::Bitmap db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-    if (type == kRedisSortedint) {
-    redis::Sortedint db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisStream) {
-    redis::Stream db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  } 
-  if (type == kRedisBloomFilter) {
-    redis::BloomChain db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
-  }
-  if (type == kRedisJson) {
-    redis::Json db(this->storage_, this->namespace_);
-    return db.Rename(from_key, to_key);
+  if (!s.ok()) return s;
+  if (nx) {
+    int exist = 0;
+    s = Exists({to_key}, &exist);
+    if (!s.ok()) return s;
+    if (exist > 0) {
+      return rocksdb::Status::Aborted();
+    }
   }
 
-  return rocksdb::Status::NotFound();
+  switch (type) {
+    case kRedisString:
+      return callRename<redis::String>(from_key, to_key);
+    case kRedisHash:
+      return callRename<redis::Hash>(from_key, to_key);
+    case kRedisList:
+      return callRename<redis::List>(from_key, to_key);
+    case kRedisSet:
+      return callRename<redis::Set>(from_key, to_key);
+    case kRedisZSet:
+      return callRename<redis::ZSet>(from_key, to_key);
+    case kRedisBitmap:
+      return callRename<redis::Bitmap>(from_key, to_key);
+    case kRedisSortedint:
+      return callRename<redis::Sortedint>(from_key, to_key);
+    case kRedisStream:
+      return callRename<redis::Stream>(from_key, to_key);
+    case kRedisBloomFilter:
+      return callRename<redis::BloomChain>(from_key, to_key);
+    case kRedisJson:
+      return callRename<redis::Json>(from_key, to_key);
+    default:
+      return rocksdb::Status::InvalidArgument("Invalid type");
+  }
 }
 
 rocksdb::Status Database::GetSlotKeysInfo(int slot, std::map<int, uint64_t> *slotskeys, std::vector<std::string> *keys,
