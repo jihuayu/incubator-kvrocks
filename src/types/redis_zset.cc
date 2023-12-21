@@ -28,6 +28,7 @@
 #include <set>
 
 #include "db_util.h"
+#include "storage/redis_metadata.h"
 
 namespace redis {
 
@@ -803,6 +804,53 @@ rocksdb::Status ZSet::MGet(const Slice &user_key, const std::vector<Slice> &memb
     (*mscores)[member.ToString()] = target_score;
   }
   return rocksdb::Status::OK();
+}
+
+rocksdb::Status ZSet::Rename(const std::string &from_key, const std::string &to_key) {
+  std::string from_ns_key = AppendNamespacePrefix(from_key);
+  std::string to_ns_key = AppendNamespacePrefix(to_key);
+
+  ZSetMetadata metadata(false);
+  rocksdb::Status s = GetMetadata(from_ns_key, &metadata);
+  if (!s.ok()) return s;
+  std::string raw_value;
+  metadata.Encode(&raw_value);
+
+  auto batch = storage_->GetWriteBatchBase();
+  WriteBatchLogData log_data(kRedisZSet, {"kRedisZsetRename"});
+  batch->PutLogData(log_data.Encode());
+
+  batch->Delete(metadata_cf_handle_, from_ns_key);
+  batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
+
+  // scan and rename subkey
+  std::string prefix = InternalKey(from_ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode();
+  std::string next_version_prefix =
+      InternalKey(from_ns_key, "", metadata.version + 1, storage_->IsSlotIdEncoded()).Encode();
+
+  rocksdb::ReadOptions read_options = storage_->DefaultScanOptions();
+  LatestSnapShot ss(storage_);
+  read_options.snapshot = ss.GetSnapShot();
+  rocksdb::Slice upper_bound(next_version_prefix);
+  read_options.iterate_upper_bound = &upper_bound;
+
+  auto iter = util::UniqueIterator(storage_, read_options);
+  for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+    InternalKey from_ikey(iter->key(), storage_->IsSlotIdEncoded());
+    std::string to_sub_key =
+        InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
+
+    std::string score_bytes;
+    s = storage_->Get(read_options, to_sub_key, &score_bytes);
+    if (!s.ok()) return s;
+    // put member key
+    batch->Put(to_sub_key, score_bytes);
+    // put score key
+    std::string score_key = InternalKey(to_ns_key, score_bytes, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+    batch->Put(score_cf_handle_, score_key, Slice());
+  }
+
+  return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
 }  // namespace redis

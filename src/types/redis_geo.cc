@@ -420,4 +420,7 @@ bool Geo::sortGeoPointASC(const GeoPoint &gp1, const GeoPoint &gp2) { return gp1
 
 bool Geo::sortGeoPointDESC(const GeoPoint &gp1, const GeoPoint &gp2) { return gp1.dist >= gp2.dist; }
 
+rocksdb::Status Geo::Rename(const std::string &from_key, const std::string &to_key) {
+  return ZSet::Rename(from_key, to_key);
+}
 }  // namespace redis

@@ -431,4 +431,47 @@ rocksdb::Status Hash::RandField(const Slice &user_key, int64_t command_count, st
   return rocksdb::Status::OK();
 }
 
+rocksdb::Status Hash::Rename(const std::string &from_key, const std::string &to_key) {
+  std::string from_ns_key = AppendNamespacePrefix(from_key);
+  std::string to_ns_key = AppendNamespacePrefix(to_key);
+
+  HashMetadata metadata(false);
+  rocksdb::Status s = GetMetadata(from_ns_key, &metadata);
+  if (!s.ok()) return s;
+  std::string raw_value;
+  metadata.Encode(&raw_value);
+
+  auto batch = storage_->GetWriteBatchBase();
+  WriteBatchLogData log_data(kRedisHash, {"kRedisHashRename"});
+  batch->PutLogData(log_data.Encode());
+
+  batch->Delete(metadata_cf_handle_, from_ns_key);
+  batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
+
+  // scan and rename subkey
+  std::string prefix = InternalKey(from_ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode();
+  std::string next_version_prefix =
+      InternalKey(from_ns_key, "", metadata.version + 1, storage_->IsSlotIdEncoded()).Encode();
+
+  rocksdb::ReadOptions read_options = storage_->DefaultScanOptions();
+  LatestSnapShot ss(storage_);
+  read_options.snapshot = ss.GetSnapShot();
+  rocksdb::Slice upper_bound(next_version_prefix);
+  read_options.iterate_upper_bound = &upper_bound;
+
+  auto iter = util::UniqueIterator(storage_, read_options);
+  for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+    InternalKey from_ikey(iter->key(), storage_->IsSlotIdEncoded());
+    std::string to_sub_key =
+        InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
+
+    std::string value;
+    s = storage_->Get(read_options, to_sub_key, &value);
+    if (!s.ok()) return s;
+    batch->Put(to_sub_key, value);
+  }
+
+  return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
+}
+
 }  // namespace redis

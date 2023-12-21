@@ -63,6 +63,7 @@ class Json : public Database {
                             Optionals<uint64_t> *results);
   rocksdb::Status StrLen(const std::string &user_key, const std::string &path, Optionals<uint64_t> *results);
   rocksdb::Status ObjLen(const std::string &user_key, const std::string &path, Optionals<uint64_t> *results);
+  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
 
  private:
   rocksdb::Status write(Slice ns_key, JsonMetadata *metadata, const JsonValue &json_val);

@@ -512,4 +512,20 @@ rocksdb::Status Json::ObjLen(const std::string &user_key, const std::string &pat
   return rocksdb::Status::OK();
 }
 
+rocksdb::Status Json::Rename(const std::string &from_key, const std::string &to_key) {
+  std::string raw_value;
+  std::string from_ns_key = AppendNamespacePrefix(from_key);
+  std::string to_ns_key = AppendNamespacePrefix(to_key);
+
+  auto s = GetRawMetadata(from_ns_key, &raw_value);
+  if (!s.ok()) return s;
+
+  auto batch = storage_->GetWriteBatchBase();
+  WriteBatchLogData log_data(kRedisJson);
+  batch->PutLogData(log_data.Encode());
+  batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
+  batch->Delete(metadata_cf_handle_, from_ns_key);
+  return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
+}
+
 }  // namespace redis

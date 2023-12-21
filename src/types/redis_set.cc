@@ -463,7 +463,7 @@ rocksdb::Status Set::Rename(const std::string &from_key, const std::string &to_k
   metadata.Encode(&raw_value);
 
   auto batch = storage_->GetWriteBatchBase();
-  WriteBatchLogData log_data(kRedisHash, {"kRedisHashRename"});
+  WriteBatchLogData log_data(kRedisSet, {"kRedisSetRename"});
   batch->PutLogData(log_data.Encode());
 
   batch->Delete(metadata_cf_handle_, from_ns_key);

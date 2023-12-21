@@ -63,6 +63,7 @@ class Hash : public SubKeyScanner {
                        std::vector<std::string> *values = nullptr);
   rocksdb::Status RandField(const Slice &user_key, int64_t command_count, std::vector<FieldValue> *field_values,
                             HashFetchType type = HashFetchType::kOnlyKey);
+  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
 
  private:
   rocksdb::Status GetMetadata(const Slice &ns_key, HashMetadata *metadata);

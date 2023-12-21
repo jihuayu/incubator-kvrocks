@@ -79,6 +79,7 @@ class Geo : public ZSet {
   rocksdb::Status Get(const Slice &user_key, const Slice &member, GeoPoint *geo_point);
   rocksdb::Status MGet(const Slice &user_key, const std::vector<Slice> &members,
                        std::map<std::string, GeoPoint> *geo_points);
+  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
   static std::string EncodeGeoHash(double longitude, double latitude);
 
  private:
