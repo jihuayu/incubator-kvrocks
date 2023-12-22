@@ -60,7 +60,7 @@ class Stream : public SubKeyScanner {
   rocksdb::Status SetId(const Slice &stream_name, const StreamEntryID &last_generated_id,
                         std::optional<uint64_t> entries_added, std::optional<StreamEntryID> max_deleted_id);
   rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
-  
+
  private:
   rocksdb::ColumnFamilyHandle *stream_cf_handle_;
 

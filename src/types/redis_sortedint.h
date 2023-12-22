@@ -49,7 +49,7 @@ class Sortedint : public Database {
   rocksdb::Status RangeByValue(const Slice &user_key, SortedintRangeSpec spec, std::vector<uint64_t> *ids, int *size);
   static Status ParseRangeSpec(const std::string &min, const std::string &max, SortedintRangeSpec *spec);
   rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
-  
+
  private:
   rocksdb::Status GetMetadata(const Slice &ns_key, SortedintMetadata *metadata);
 };
