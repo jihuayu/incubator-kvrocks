@@ -601,7 +601,8 @@ rocksdb::Status Database::ClearKeysOfSlot(const rocksdb::Slice &ns, int slot) {
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key, bool nx) {
+rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key, bool nx, bool *ret) {
+  *ret = true;
   RedisType type = kRedisNone;
   std::string from_ns_key = AppendNamespacePrefix(from_key);
   std::string to_ns_key = AppendNamespacePrefix(to_key);
@@ -609,13 +610,19 @@ rocksdb::Status Database::Rename(const std::string &from_key, const std::string 
   MultiLockGuard guard(storage_->GetLockManager(), lock_keys);
   auto s = Type(from_key, &type);
   if (!s.ok()) return s;
+
   if (nx) {
     int exist = 0;
     s = Exists({to_key}, &exist);
     if (!s.ok()) return s;
     if (exist > 0) {
-      return rocksdb::Status::Aborted();
+      *ret = false;
+      return rocksdb::Status::OK();
     }
+  }
+
+  if (from_key == to_key) {
+    return rocksdb::Status::OK();
   }
 
   switch (type) {
