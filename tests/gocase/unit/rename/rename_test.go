@@ -115,3 +115,451 @@ func TestRename_String(t *testing.T) {
 	})
 
 }
+
+func TestRename_JSON(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	SET_CMD := "JSON.SET"
+	GET_CMD := "JSON.GET"
+	JSON_STR_A := `{"x":1,"y":2}`
+	JSON_STR_B := `{"x":1}`
+
+	t.Run("Rename json", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a1").Val())
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a1", "$", JSON_STR_B).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a1").Val())
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a1", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a1").Val())
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "world").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a1").Val())
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a").Val())
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a1", "$", JSON_STR_B).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a2", "$", JSON_STR_B).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a3", "$", JSON_STR_B).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a1").Val())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a2").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a3").Val())
+	})
+
+	t.Run("RenameNX json", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a1", "$", JSON_STR_B).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_B, rdb.Do(ctx, GET_CMD, "a1").Val())
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		require.EqualValues(t, nil, rdb.Do(ctx, GET_CMD, "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, SET_CMD, "a", "$", JSON_STR_A).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		require.EqualValues(t, JSON_STR_A, rdb.Do(ctx, GET_CMD, "a").Val())
+	})
+
+}
+
+func TestRename_List(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualListValues := func(t *testing.T, key string, value []string) {
+		require.EqualValues(t, len(value), rdb.LLen(ctx, key).Val())
+		for i := 0; i < len(value); i++ {
+			require.EqualValues(t, value[i], rdb.LIndex(ctx, key, int64(i)).Val())
+		}
+	}
+
+	t.Run("Rename string", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, 3, rdb.LLen(ctx, "a1").Val())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "a").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "a").Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.Set(ctx, "a1", "world", 0).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "2").Err())
+		require.NoError(t, rdb.LPush(ctx, "a2", "3").Err())
+		require.NoError(t, rdb.LPush(ctx, "a3", "1").Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualListValues(t, "a3", []string{"3", "2", "1"})
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX string", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "3").Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualListValues(t, "a", []string{"3", "2", "1"})
+		EqualListValues(t, "a1", []string{"3"})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualListValues(t, "a1", []string{"3", "2", "1"})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.LPush(ctx, "a", "1", "2", "3").Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualListValues(t, "a", []string{"3", "2", "1"})
+	})
+
+}
+
+func TestRename_hash(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualListValues := func(t *testing.T, key string, value map[string]string) {
+		require.EqualValues(t, len(value), rdb.HLen(ctx, key).Val())
+		for sub_key := range value {
+			require.EqualValues(t, value[sub_key], rdb.HGet(ctx, key, sub_key).Val())
+		}
+	}
+
+	t.Run("Rename hash", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a2", "a", "1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a3", "a", "1").Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualListValues(t, "a3", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX hash", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualListValues(t, "a", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+		})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualListValues(t, "a1", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.HSet(ctx, "a", "a", "1", "b", "2", "c", "3").Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualListValues(t, "a", map[string]string{
+			"a": "1",
+			"b": "2",
+			"c": "3",
+		})
+	})
+
+}
+
+func TestRename_set(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualSetValues := func(t *testing.T, key string, value []string) {
+		require.EqualValues(t, len(value), rdb.SCard(ctx, key).Val())
+		for index := range value {
+			require.EqualValues(t, true, rdb.SIsMember(ctx, key, value[index]).Val())
+		}
+	}
+
+	t.Run("Rename set", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.NoError(t, rdb.HSet(ctx, "a1", "a", "1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.SAdd(ctx, "a1", "1").Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.NoError(t, rdb.SAdd(ctx, "a1", "1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.NoError(t, rdb.SAdd(ctx, "a1", "1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a2", "a", "1").Err())
+		require.NoError(t, rdb.HSet(ctx, "a3", "a", "1").Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualSetValues(t, "a3", []string{"1", "2", "3"})
+
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX set", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a1", "1").Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualSetValues(t, "a", []string{"1", "2", "3"})
+		EqualSetValues(t, "a1", []string{"1"})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualSetValues(t, "a1", []string{"1", "2", "3"})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.SAdd(ctx, "a", "1", "2", "3").Err())
+
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualSetValues(t, "a", []string{"1", "2", "3"})
+
+	})
+
+}

@@ -466,7 +466,8 @@ rocksdb::Status Hash::Rename(const std::string &key, const std::string &new_key)
         InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
 
     std::string value;
-    s = storage_->Get(read_options, to_sub_key, &value);
+    s = storage_->Get(read_options, iter->key(), &value);
+
     if (!s.ok()) return s;
     batch->Put(to_sub_key, value);
   }
