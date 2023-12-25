@@ -841,10 +841,11 @@ rocksdb::Status ZSet::Rename(const std::string &key, const std::string &new_key)
         InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
 
     std::string score_bytes;
-    s = storage_->Get(read_options, to_sub_key, &score_bytes);
+    s = storage_->Get(read_options, iter->key(), &score_bytes);
     if (!s.ok()) return s;
     // put member key
     batch->Put(to_sub_key, score_bytes);
+    score_bytes.append(from_ikey.GetSubKey().ToString());
     // put score key
     std::string score_key = InternalKey(to_ns_key, score_bytes, metadata.version, storage_->IsSlotIdEncoded()).Encode();
     batch->Put(score_cf_handle_, score_key, Slice());

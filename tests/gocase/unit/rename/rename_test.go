@@ -21,10 +21,12 @@ package rename
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/apache/kvrocks/tests/gocase/util"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -559,6 +561,155 @@ func TestRename_set(t *testing.T) {
 
 		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
 		EqualSetValues(t, "a", []string{"1", "2", "3"})
+
+	})
+
+}
+
+func TestRename_zset(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualZSetValues := func(t *testing.T, key string, value map[string]int) {
+		require.EqualValues(t, len(value), rdb.ZCard(ctx, key).Val())
+		for sub_key := range value {
+			score := value[sub_key]
+			require.EqualValues(t, []string{sub_key}, rdb.ZRangeByScore(ctx, key,
+				&redis.ZRangeBy{Max: strconv.Itoa(score), Min: strconv.Itoa(score)}).Val())
+			require.EqualValues(t, float64(score), rdb.ZScore(ctx, key, sub_key).Val())
+		}
+	}
+
+	Z_MEMBER := []redis.Z{{Member: "a", Score: 1}, {Member: "b", Score: 2}, {Member: "c", Score: 3}}
+	Z_MEMBER_2 := []redis.Z{{Member: "a", Score: 2}}
+
+	t.Run("Rename zset", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+
+		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a2", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a3", Z_MEMBER_2...).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualZSetValues(t, "a3", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX zset", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualZSetValues(t, "a", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 2,
+		})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualZSetValues(t, "a1", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
+
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualZSetValues(t, "a", map[string]int{
+			"a": 1,
+			"b": 2,
+			"c": 3,
+		})
 
 	})
 
