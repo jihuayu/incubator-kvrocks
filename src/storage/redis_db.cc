@@ -601,19 +601,19 @@ rocksdb::Status Database::ClearKeysOfSlot(const rocksdb::Slice &ns, int slot) {
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Database::Rename(const std::string &from_key, const std::string &to_key, bool nx, bool *ret) {
+rocksdb::Status Database::Rename(const std::string &key, const std::string &new_key, bool nx, bool *ret) {
   *ret = true;
   RedisType type = kRedisNone;
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
-  std::vector<std::string> lock_keys = {from_ns_key, to_ns_key};
+  std::string ns_key = AppendNamespacePrefix(key);
+  std::string new_ns_key = AppendNamespacePrefix(new_key);
+  std::vector<std::string> lock_keys = {ns_key, new_ns_key};
   MultiLockGuard guard(storage_->GetLockManager(), lock_keys);
-  auto s = Type(from_key, &type);
+  auto s = Type(key, &type);
   if (!s.ok()) return s;
 
   if (nx) {
     int exist = 0;
-    s = Exists({to_key}, &exist);
+    s = Exists({new_key}, &exist);
     if (!s.ok()) return s;
     if (exist > 0) {
       *ret = false;
@@ -621,31 +621,31 @@ rocksdb::Status Database::Rename(const std::string &from_key, const std::string 
     }
   }
 
-  if (from_key == to_key) {
+  if (key == new_key) {
     return rocksdb::Status::OK();
   }
 
   switch (type) {
     case kRedisString:
-      return callRename<redis::String>(from_key, to_key);
+      return callRename<redis::String>(key, new_key);
     case kRedisHash:
-      return callRename<redis::Hash>(from_key, to_key);
+      return callRename<redis::Hash>(key, new_key);
     case kRedisList:
-      return callRename<redis::List>(from_key, to_key);
+      return callRename<redis::List>(key, new_key);
     case kRedisSet:
-      return callRename<redis::Set>(from_key, to_key);
+      return callRename<redis::Set>(key, new_key);
     case kRedisZSet:
-      return callRename<redis::ZSet>(from_key, to_key);
+      return callRename<redis::ZSet>(key, new_key);
     case kRedisBitmap:
-      return callRename<redis::Bitmap>(from_key, to_key);
+      return callRename<redis::Bitmap>(key, new_key);
     case kRedisSortedint:
-      return callRename<redis::Sortedint>(from_key, to_key);
+      return callRename<redis::Sortedint>(key, new_key);
     case kRedisStream:
-      return callRename<redis::Stream>(from_key, to_key);
+      return callRename<redis::Stream>(key, new_key);
     case kRedisBloomFilter:
-      return callRename<redis::BloomChain>(from_key, to_key);
+      return callRename<redis::BloomChain>(key, new_key);
     case kRedisJson:
-      return callRename<redis::Json>(from_key, to_key);
+      return callRename<redis::Json>(key, new_key);
     default:
       return rocksdb::Status::InvalidArgument("Invalid type");
   }

@@ -54,7 +54,7 @@ class List : public Database {
   rocksdb::Status PushX(const Slice &user_key, const std::vector<Slice> &elems, bool left, uint64_t *new_size);
   rocksdb::Status Range(const Slice &user_key, int start, int stop, std::vector<std::string> *elems);
   rocksdb::Status Pos(const Slice &user_key, const Slice &elem, const PosSpec &spec, std::vector<int64_t> *indexes);
-  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  rocksdb::Status Rename(const std::string &key, const std::string &new_key);
 
  private:
   rocksdb::Status GetMetadata(const Slice &ns_key, ListMetadata *metadata);

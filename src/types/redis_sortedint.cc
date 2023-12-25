@@ -268,9 +268,9 @@ Status Sortedint::ParseRangeSpec(const std::string &min, const std::string &max,
   return Status::OK();
 }
 
-rocksdb::Status Sortedint::Rename(const std::string &from_key, const std::string &to_key) {
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
+rocksdb::Status Sortedint::Rename(const std::string &key, const std::string &new_key) {
+  std::string from_ns_key = AppendNamespacePrefix(key);
+  std::string to_ns_key = AppendNamespacePrefix(new_key);
 
   SortedintMetadata metadata(false);
   rocksdb::Status s = GetMetadata(from_ns_key, &metadata);

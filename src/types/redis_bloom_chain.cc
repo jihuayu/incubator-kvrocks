@@ -282,9 +282,9 @@ rocksdb::Status BloomChain::Info(const Slice &user_key, BloomFilterInfo *info) {
 
   return rocksdb::Status::OK();
 }
-rocksdb::Status BloomChain::Rename(const std::string &from_key, const std::string &to_key) {
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
+rocksdb::Status BloomChain::Rename(const std::string &key, const std::string &new_key) {
+  std::string from_ns_key = AppendNamespacePrefix(key);
+  std::string to_ns_key = AppendNamespacePrefix(new_key);
 
   BloomChainMetadata metadata(false);
   rocksdb::Status s = getBloomChainMetadata(from_ns_key, &metadata);

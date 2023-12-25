@@ -877,10 +877,10 @@ bool Bitmap::IsEmptySegment(const Slice &segment) {
   return !memcmp(zero_byte_segment, segment.data(), segment.size());
 }
 
-rocksdb::Status Bitmap::Rename(const std::string &from_key, const std::string &to_key) {
+rocksdb::Status Bitmap::Rename(const std::string &key, const std::string &new_key) {
   std::string raw_value;
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
+  std::string from_ns_key = AppendNamespacePrefix(key);
+  std::string to_ns_key = AppendNamespacePrefix(new_key);
 
   auto s = GetRawMetadata(from_ns_key, &raw_value);
   if (!s.ok()) return s;

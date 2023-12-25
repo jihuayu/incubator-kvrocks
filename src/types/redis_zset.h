@@ -125,7 +125,7 @@ class ZSet : public SubKeyScanner {
                                uint64_t *removed_cnt);
   rocksdb::Status RangeByLex(const Slice &user_key, const RangeLexSpec &spec, MemberScores *mscores,
                              uint64_t *removed_cnt);
-  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  rocksdb::Status Rename(const std::string &key, const std::string &new_key);
 
  private:
   rocksdb::ColumnFamilyHandle *score_cf_handle_;

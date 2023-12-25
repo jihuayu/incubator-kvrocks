@@ -806,9 +806,9 @@ rocksdb::Status ZSet::MGet(const Slice &user_key, const std::vector<Slice> &memb
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status ZSet::Rename(const std::string &from_key, const std::string &to_key) {
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
+rocksdb::Status ZSet::Rename(const std::string &key, const std::string &new_key) {
+  std::string from_ns_key = AppendNamespacePrefix(key);
+  std::string to_ns_key = AppendNamespacePrefix(new_key);
 
   ZSetMetadata metadata(false);
   rocksdb::Status s = GetMetadata(from_ns_key, &metadata);

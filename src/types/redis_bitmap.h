@@ -65,7 +65,7 @@ class Bitmap : public Database {
   }
   static bool GetBitFromValueAndOffset(const std::string &value, uint32_t offset);
   static bool IsEmptySegment(const Slice &segment);
-  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  rocksdb::Status Rename(const std::string &key, const std::string &new_key);
 
  private:
   template <bool ReadOnly>

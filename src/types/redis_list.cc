@@ -662,9 +662,9 @@ rocksdb::Status List::Trim(const Slice &user_key, int start, int stop) {
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
-rocksdb::Status List::Rename(const std::string &from_key, const std::string &to_key) {
-  std::string from_ns_key = AppendNamespacePrefix(from_key);
-  std::string to_ns_key = AppendNamespacePrefix(to_key);
+rocksdb::Status List::Rename(const std::string &key, const std::string &new_key) {
+  std::string from_ns_key = AppendNamespacePrefix(key);
+  std::string to_ns_key = AppendNamespacePrefix(new_key);
 
   ListMetadata metadata(false);
   rocksdb::Status s = GetMetadata(from_ns_key, &metadata);

@@ -55,7 +55,7 @@ class String : public Database {
   rocksdb::Status CAS(const std::string &user_key, const std::string &old_value, const std::string &new_value,
                       uint64_t ttl, int *flag);
   rocksdb::Status CAD(const std::string &user_key, const std::string &value, int *flag);
-  rocksdb::Status Rename(const std::string &from_key, const std::string &to_key);
+  rocksdb::Status Rename(const std::string &key, const std::string &new_key);
 
  private:
   rocksdb::Status getValue(const std::string &ns_key, std::string *value);
