@@ -21,7 +21,9 @@
 #include "redis_bitmap.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -881,8 +883,9 @@ rocksdb::Status Bitmap::Rename(const std::string &key, const std::string &new_ke
   std::string raw_value;
   std::string from_ns_key = AppendNamespacePrefix(key);
   std::string to_ns_key = AppendNamespacePrefix(new_key);
+  BitmapMetadata metadata(false);
 
-  auto s = GetRawMetadata(from_ns_key, &raw_value);
+  auto s = GetMetadata(from_ns_key, &metadata, &raw_value);
   if (!s.ok()) return s;
 
   auto batch = storage_->GetWriteBatchBase();
@@ -890,6 +893,21 @@ rocksdb::Status Bitmap::Rename(const std::string &key, const std::string &new_ke
   batch->PutLogData(log_data.Encode());
   batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
   batch->Delete(metadata_cf_handle_, from_ns_key);
+  
+  // rename each subkey
+  for (uint64_t i = 0; i < metadata.size; i++) {
+    std::string sub_key = std::to_string(i * kBitmapSegmentBytes);
+    std::string from_sub_key =
+        InternalKey(from_ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+
+    std::string elem;
+    s = storage_->Get(rocksdb::ReadOptions(), from_sub_key, &elem);
+    if (s.IsNotFound()) continue;
+    if (!s.ok()) return s;
+    std::string to_sub_key = InternalKey(to_ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+    batch->Put(to_sub_key, elem);
+  }
+
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
