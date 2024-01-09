@@ -22,12 +22,16 @@
 
 #include <algorithm>
 #include <memory>
+#include <ostream>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "db_util.h"
+#include "glog/logging.h"
 #include "parse_util.h"
 #include "redis_bitmap_string.h"
+#include "types/redis_string.h"
 
 namespace redis {
 
@@ -879,17 +883,37 @@ bool Bitmap::IsEmptySegment(const Slice &segment) {
 
 rocksdb::Status Bitmap::Rename(const std::string &key, const std::string &new_key) {
   std::string raw_value;
-  std::string from_ns_key = AppendNamespacePrefix(key);
-  std::string to_ns_key = AppendNamespacePrefix(new_key);
+  BitmapMetadata metadata(false);
+  std::string ns_key = AppendNamespacePrefix(key);
+  std::string new_ns_key = AppendNamespacePrefix(new_key);
 
-  auto s = GetRawMetadata(from_ns_key, &raw_value);
+  auto s = GetMetadata(ns_key, &metadata, &raw_value);
   if (!s.ok()) return s;
 
   auto batch = storage_->GetWriteBatchBase();
   WriteBatchLogData log_data(kRedisString);
   batch->PutLogData(log_data.Encode());
-  batch->Put(metadata_cf_handle_, to_ns_key, raw_value);
-  batch->Delete(metadata_cf_handle_, from_ns_key);
+  batch->Put(metadata_cf_handle_, new_ns_key, raw_value);
+  batch->Delete(metadata_cf_handle_, ns_key);
+  rocksdb::ReadOptions read_options;
+  rocksdb::PinnableSlice pin_value;
+  LOG(INFO) << "size:" << metadata.size << std::endl;
+  for (uint32_t i = 0; i <= metadata.size; i++) {
+    std::string str;
+    std::string sub_key =
+        InternalKey(ns_key, std::to_string(i * kBitmapSegmentBytes), metadata.version, storage_->IsSlotIdEncoded())
+            .Encode();
+    s = storage_->Get(read_options, sub_key, &str);
+    if (!s.ok() && !s.IsNotFound()) return s;
+    if (s.IsNotFound()) continue;
+    LOG(INFO) << "copy:" << i <<"  "<<str<< std::endl;
+    std::string new_sub_key =
+        InternalKey(new_ns_key, std::to_string(i * kBitmapSegmentBytes), metadata.version, storage_->IsSlotIdEncoded())
+            .Encode();
+    s = batch->Put( sub_key, str);
+    pin_value.Reset();
+  }
+
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
