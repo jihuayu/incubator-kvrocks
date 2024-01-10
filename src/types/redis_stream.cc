@@ -1114,16 +1114,12 @@ rocksdb::Status Stream::Rename(const std::string &key, const std::string &new_ke
   rocksdb::Slice upper_bound(next_version_prefix);
   read_options.iterate_upper_bound = &upper_bound;
 
-  auto iter = util::UniqueIterator(storage_, read_options);
+  auto iter = util::UniqueIterator(storage_, read_options, stream_cf_handle_);
   for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
     InternalKey from_ikey(iter->key(), storage_->IsSlotIdEncoded());
     std::string to_sub_key =
         InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
-
-    std::string value;
-    s = storage_->Get(read_options, to_sub_key, &value);
-    if (!s.ok()) return s;
-    batch->Put(to_sub_key, value);
+    batch->Put(stream_cf_handle_, to_sub_key, iter->value());
   }
 
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
