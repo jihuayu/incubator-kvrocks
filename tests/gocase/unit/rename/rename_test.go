@@ -643,7 +643,6 @@ func TestRename_zset(t *testing.T) {
 		// key == newkey
 		require.NoError(t, rdb.Del(ctx, "a").Err())
 		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
-
 		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
 		EqualZSetValues(t, "a1", map[string]int{
 			"a": 1,
@@ -653,7 +652,6 @@ func TestRename_zset(t *testing.T) {
 		// rename*3
 		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
 		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
-
 		require.NoError(t, rdb.ZAdd(ctx, "a1", Z_MEMBER_2...).Err())
 		require.NoError(t, rdb.ZAdd(ctx, "a2", Z_MEMBER_2...).Err())
 		require.NoError(t, rdb.ZAdd(ctx, "a3", Z_MEMBER_2...).Err())
@@ -703,7 +701,6 @@ func TestRename_zset(t *testing.T) {
 		// key == newkey
 		require.NoError(t, rdb.Del(ctx, "a").Err())
 		require.NoError(t, rdb.ZAdd(ctx, "a", Z_MEMBER...).Err())
-
 		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
 		EqualZSetValues(t, "a", map[string]int{
 			"a": 1,

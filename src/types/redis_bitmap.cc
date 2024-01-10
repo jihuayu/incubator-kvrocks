@@ -879,23 +879,27 @@ rocksdb::Status Bitmap::Rename(const std::string &key, const std::string &new_ke
   batch->PutLogData(log_data.Encode());
   batch->Put(metadata_cf_handle_, new_ns_key, raw_value);
   batch->Delete(metadata_cf_handle_, ns_key);
-  rocksdb::ReadOptions read_options;
   rocksdb::PinnableSlice pin_value;
-  LOG(INFO) << "size:" << metadata.size << std::endl;
-  for (uint32_t i = 0; i <= metadata.size; i++) {
-    std::string str;
-    std::string sub_key =
-        InternalKey(ns_key, std::to_string(i * kBitmapSegmentBytes), metadata.version, storage_->IsSlotIdEncoded())
-            .Encode();
-    s = storage_->Get(read_options, sub_key, &str);
-    if (!s.ok() && !s.IsNotFound()) return s;
-    if (s.IsNotFound()) continue;
-    LOG(INFO) << "copy:" << i <<"  "<<str<< std::endl;
-    std::string new_sub_key =
-        InternalKey(new_ns_key, std::to_string(i * kBitmapSegmentBytes), metadata.version, storage_->IsSlotIdEncoded())
-            .Encode();
-    s = batch->Put( sub_key, str);
-    pin_value.Reset();
+
+  // scan and rename subkey
+  std::string prefix = InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode();
+  std::string next_version_prefix =
+      InternalKey(ns_key, "", metadata.version + 1, storage_->IsSlotIdEncoded()).Encode();
+
+  rocksdb::ReadOptions read_options = storage_->DefaultScanOptions();
+  LatestSnapShot ss(storage_);
+  read_options.snapshot = ss.GetSnapShot();
+  rocksdb::Slice lower_bound(prefix);
+  read_options.iterate_lower_bound = &lower_bound;
+  rocksdb::Slice upper_bound(next_version_prefix);
+  read_options.iterate_upper_bound = &upper_bound;
+
+  auto iter = util::UniqueIterator(storage_, read_options);
+  for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+    InternalKey from_ikey(iter->key(), storage_->IsSlotIdEncoded());
+    std::string to_sub_key =
+        InternalKey(new_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
+    batch->Put(to_sub_key, iter->value());
   }
 
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
