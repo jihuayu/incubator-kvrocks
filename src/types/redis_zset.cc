@@ -26,6 +26,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <string>
 
 #include "db_util.h"
 #include "storage/redis_metadata.h"
@@ -839,10 +840,7 @@ rocksdb::Status ZSet::Rename(const std::string &key, const std::string &new_key)
     InternalKey from_ikey(iter->key(), storage_->IsSlotIdEncoded());
     std::string to_sub_key =
         InternalKey(to_ns_key, from_ikey.GetSubKey(), from_ikey.GetVersion(), storage_->IsSlotIdEncoded()).Encode();
-
-    std::string score_bytes;
-    s = storage_->Get(read_options, iter->key(), &score_bytes);
-    if (!s.ok()) return s;
+    std::string score_bytes = iter->value().ToString();
     // put member key
     batch->Put(to_sub_key, score_bytes);
     score_bytes.append(from_ikey.GetSubKey().ToString());
