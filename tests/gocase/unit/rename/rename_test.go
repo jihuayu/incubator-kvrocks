@@ -714,3 +714,195 @@ func TestRename_zset(t *testing.T) {
 	})
 
 }
+
+func TestRename_Bitmap(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualBitSetValues := func(t *testing.T, key string, value []int64) {
+		for i := 0; i < len(value); i++ {
+			require.EqualValues(t, int64(value[i]), rdb.Do(ctx, "BITPOS", key, 1, value[i]/8).Val())
+		}
+	}
+
+	SetBits := func(t *testing.T, key string, value []int64) {
+		for i := 0; i < len(value); i++ {
+			require.NoError(t, rdb.Do(ctx, "SETBIT", key, value[i], 1).Err())
+		}
+	}
+	BITSET_A := []int64{16, 1024 * 8 * 2, 1024 * 8 * 12}
+
+	t.Run("Rename Bitmap", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		SetBits(t, "a", BITSET_A)
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualBitSetValues(t, "a1", BITSET_A)
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 99).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualBitSetValues(t, "a1", []int64{3, 4, 5, 123, 245})
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "a").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualBitSetValues(t, "a1", []int64{3, 4, 5, 123, 245})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualBitSetValues(t, "a1", []int64{3, 4, 5, 123, 245})
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 85).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a2", 77, 0).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a3", 111, 222, 333).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualBitSetValues(t, "a3", []int64{3, 4, 5, 123, 245})
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX Bitmap", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 99).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualBitSetValues(t, "a", []int64{3, 4, 5, 123, 245})
+		EqualBitSetValues(t, "a1", []int64{99})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualBitSetValues(t, "a1", []int64{3, 4, 5, 123, 245})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualBitSetValues(t, "a", []int64{3, 4, 5, 123, 245})
+
+	})
+
+}
+
+func TestRename_SInt(t *testing.T) {
+	srv := util.StartServer(t, map[string]string{})
+	defer srv.Close()
+
+	ctx := context.Background()
+	rdb := srv.NewClient()
+	defer func() { require.NoError(t, rdb.Close()) }()
+
+	EqualSIntValues := func(t *testing.T, key string, value []int) {
+		require.EqualValues(t, len(value), rdb.Do(ctx, "SICARD", key).Val())
+		for i := 0; i < len(value); i++ {
+			require.EqualValues(t, []interface{}{int64(1)}, rdb.Do(ctx, "SIEXISTS", key, value[i]).Val())
+		}
+	}
+
+	t.Run("Rename SInt", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSIntValues(t, "a1", []int{3, 4, 5, 123, 245})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// to-key has value with TTL
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 99).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSIntValues(t, "a1", []int{3, 4, 5, 123, 245})
+		util.BetweenValues(t, rdb.TTL(ctx, "a1").Val(), time.Second, 10*time.Second)
+
+		// to-key has value that not string type
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.LPush(ctx, "a1", "a").Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		EqualSIntValues(t, "a1", []int{3, 4, 5, 123, 245})
+		require.EqualValues(t, -1, rdb.TTL(ctx, "a1").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a").Err())
+		EqualSIntValues(t, "a1", []int{3, 4, 5, 123, 245})
+
+		// rename*3
+		require.NoError(t, rdb.Del(ctx, "a", "a1", "a2", "a3").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 85).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a2", 77, 0).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a3", 111, 222, 333).Err())
+		require.NoError(t, rdb.Expire(ctx, "a", 10*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a1", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a2", 1000*time.Second).Err())
+		require.NoError(t, rdb.Expire(ctx, "a3", 1000*time.Second).Err())
+		require.NoError(t, rdb.Rename(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Rename(ctx, "a1", "a2").Err())
+		require.NoError(t, rdb.Rename(ctx, "a2", "a3").Err())
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a1").Val())
+		require.EqualValues(t, "", rdb.Get(ctx, "a2").Val())
+		EqualSIntValues(t, "a3", []int{3, 4, 5, 123, 245})
+		util.BetweenValues(t, rdb.TTL(ctx, "a3").Val(), time.Second, 10*time.Second)
+	})
+
+	t.Run("RenameNX SInt", func(t *testing.T) {
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a1", 99).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualSIntValues(t, "a", []int{3, 4, 5, 123, 245})
+		EqualSIntValues(t, "a1", []int{99})
+
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.EqualValues(t, true, rdb.RenameNX(ctx, "a", "a1").Val())
+		EqualSIntValues(t, "a1", []int{3, 4, 5, 123, 245})
+		require.EqualValues(t, "", rdb.Get(ctx, "a").Val())
+
+		// key == newkey
+		require.NoError(t, rdb.Del(ctx, "a", "a1").Err())
+		require.NoError(t, rdb.Do(ctx, "SIADD", "a", 3, 4, 5, 123, 245).Err())
+		require.EqualValues(t, false, rdb.RenameNX(ctx, "a", "a").Val())
+		EqualSIntValues(t, "a", []int{3, 4, 5, 123, 245})
+
+	})
+
+}
