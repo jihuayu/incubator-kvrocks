@@ -54,12 +54,6 @@ class Sync {
   int next_seq_fd_;
   rocksdb::SequenceNumber next_seq_ = static_cast<rocksdb::SequenceNumber>(0);
 
-  // Internal states managed by IncrementBatchLoop procedure
-  enum IncrementBatchLoopState {
-    Incr_batch_size,
-    Incr_batch_data,
-  } incr_state_ = Incr_batch_size;
-
   Status incrementBatchLoop();
 
   Status tryCatchUpWithPrimary();
