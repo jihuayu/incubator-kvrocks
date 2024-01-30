@@ -377,6 +377,7 @@ jobs:
           - name: CentOS 7
             image: centos:7
             compiler: gcc
+            node16: true
           - name: openSUSE Leap 15
             image: opensuse/leap:15
             compiler: gcc
@@ -418,7 +419,7 @@ jobs:
 
       - name: Cache redis
         id: cache-redis
-        uses: actions/cache@v4
+        uses: actions/cache@${{ matrix.node16?'v4':'v3' }}
         with:
           path: |
             ~/local/bin/redis-cli
@@ -438,7 +439,12 @@ jobs:
           wget https://github.com/Kitware/CMake/releases/download/v3.26.4/cmake-3.26.4-linux-x86_64.sh
           bash cmake-3.26.4-linux-x86_64.sh --skip-license --prefix=/usr
 
+      - uses: actions/checkout@v3
+        if: ${{ matrix.node16 }}
+        
       - uses: actions/checkout@v4
+        if: ${{ !matrix.node16 }}
+          
       - uses: actions/setup-go@v5
         if: ${{ !startsWith(matrix.image, 'opensuse') }}
         with:
