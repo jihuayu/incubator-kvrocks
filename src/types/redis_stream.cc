@@ -23,10 +23,12 @@
 #include <rocksdb/status.h>
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "db_util.h"
+#include "encoding.h"
 #include "time_util.h"
 
 namespace redis {
@@ -248,6 +250,34 @@ StreamConsumerMetadata Stream::decodeStreamConsumerMetadataValue(const std::stri
   GetFixed64(&input, &consumer_metadata.last_idle);
   GetFixed64(&input, &consumer_metadata.last_active);
   return consumer_metadata;
+}
+
+std::string Stream::internalKeyFromPelEntry(const std::string &ns_key, const StreamMetadata &metadata,
+                                            const std::string &group_name, const StreamEntryID &entry_id) const {
+  std::string sub_key;
+  PutFixed64(&sub_key, group_name.size());
+  sub_key += group_name;
+  PutFixed64(&sub_key, entry_id.ms);
+  PutFixed64(&sub_key, entry_id.seq);
+  std::string entry_key = InternalKey(ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
+  return entry_key;
+}
+
+std::string Stream::encodeStreamPelEntryMetadataValue(const StreamPelEntryMetadata &metadata) {
+  std::string dst;
+  PutString(&dst, metadata.consumer_name);
+  PutFixed64(&dst, metadata.active_count);
+  PutFixed64(&dst, metadata.last_active);
+  return dst;
+}
+
+StreamPelEntryMetadata Stream::decodeStreamPelEntryMetadataValue(const std::string &value) {
+  StreamPelEntryMetadata metadata;
+  rocksdb::Slice input(value);
+  GetString(&input, &metadata.consumer_name);
+  GetFixed64(&input, &metadata.active_count);
+  GetFixed64(&input, &metadata.last_active);
+  return metadata;
 }
 
 StreamSubkeyType Stream::identifySubkeyType(const rocksdb::Slice &key) {

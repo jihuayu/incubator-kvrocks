@@ -175,6 +175,12 @@ struct StreamConsumerMetadata {
   uint64_t last_active;
 };
 
+struct StreamPelEntryMetadata {
+  std::string consumer_name;
+  uint64_t last_active;
+  uint64_t active_count;
+};
+
 enum class StreamSubkeyType {
   StreamEntry = 0,
   StreamConsumerGroupMetadata = 1,

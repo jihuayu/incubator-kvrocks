@@ -110,3 +110,18 @@ bool GetDouble(rocksdb::Slice *input, double *value);
 char *EncodeVarint32(char *dst, uint32_t v);
 void PutVarint32(std::string *dst, uint32_t v);
 bool GetVarint32(rocksdb::Slice *input, uint32_t *value);
+
+inline void PutString(std::string *dst, const std::string &str) {
+  PutFixed64(dst, static_cast<uint64_t>(str.size()));
+  (*dst) += str;
+}
+
+inline bool GetString(rocksdb::Slice *input, std::string *str) {
+  if (input->size() < sizeof(uint64_t)) return false;
+  auto size = DecodeFixed<uint64_t>(input->data());
+  if (input->size() < sizeof(uint64_t) + size) return false;
+  input->remove_prefix(sizeof(uint64_t));
+  *str = input->ToString().substr(0, size);
+  input->remove_prefix(size);
+  return true;
+}
