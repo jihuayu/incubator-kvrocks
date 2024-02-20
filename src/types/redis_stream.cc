@@ -1114,4 +1114,54 @@ rocksdb::Status Stream::SetId(const Slice &stream_name, const StreamEntryID &las
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
+rocksdb::Status Stream::getStreamConsumerGroupMetadata(const std::string &ns_key, const std::string &group_name,
+                                                       StreamConsumerGroupMetadata *consumer_group_metadata) {
+  StreamMetadata metadata;
+  rocksdb::Status s = GetMetadata(ns_key, &metadata);
+  if (!s.ok() && !s.IsNotFound()) {
+    return s;
+  }
+  if (s.IsNotFound()) {
+    return rocksdb::Status::InvalidArgument(errXGroupSubcommandRequiresKeyExist);
+  }
+
+  std::string entry_key = internalKeyFromGroupName(ns_key, metadata, group_name);
+  std::string get_entry_value;
+  s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
+  if (!s.ok() && !s.IsNotFound()) {
+    return s;
+  }
+  if (s.IsNotFound()) {
+    return rocksdb::Status::InvalidArgument("NOGROUP No such consumer group " + group_name);
+  }
+
+  *consumer_group_metadata = decodeStreamConsumerGroupMetadataValue(get_entry_value);
+  return rocksdb::Status::OK();
+}
+
+rocksdb::Status Stream::getStreamConsumerMetadata(const std::string &ns_key, const std::string &group_name,
+                                                  const std::string &consumer_name,
+                                                  StreamConsumerMetadata *consumer_metadata) {
+  StreamMetadata metadata;
+  rocksdb::Status s = GetMetadata(ns_key, &metadata);
+  if (!s.ok() && !s.IsNotFound()) return s;
+
+  if (s.IsNotFound()) return rocksdb::Status::InvalidArgument(errXGroupSubcommandRequiresKeyExist);
+
+  std::string entry_key = internalKeyFromGroupName(ns_key, metadata, group_name);
+  std::string get_entry_value;
+  s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
+  if (!s.ok() && !s.IsNotFound()) return s;
+
+  if (s.IsNotFound()) return rocksdb::Status::InvalidArgument("NOGROUP No such consumer group " + group_name);
+
+  *consumer_metadata = decodeStreamConsumerMetadataValue(get_entry_value);
+  return rocksdb::Status::OK();
+}
+
+rocksdb::Status Stream::GroupRead(const Slice &stream_name, const Slice &group_name, const Slice &consumer_name,
+                                  const StreamRangeOptions &options, std::vector<StreamEntry> *entries) {
+  return rocksdb::Status::OK();
+}
+
 }  // namespace redis

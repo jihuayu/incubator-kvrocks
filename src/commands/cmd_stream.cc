@@ -1334,6 +1334,7 @@ class CommandXReadGroup : public Commander,
 
   void unblockAll() { srv_->UnblockOnStreamsGroup(group_, streams_, conn_); }
 };
+
 class CommandXTrim : public Commander {
  public:
   Status Parse(const std::vector<std::string> &args) override {

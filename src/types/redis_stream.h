@@ -59,6 +59,8 @@ class Stream : public SubKeyScanner {
   rocksdb::Status GetLastGeneratedID(const Slice &stream_name, StreamEntryID *id);
   rocksdb::Status SetId(const Slice &stream_name, const StreamEntryID &last_generated_id,
                         std::optional<uint64_t> entries_added, std::optional<StreamEntryID> max_deleted_id);
+  rocksdb::Status GroupRead(const Slice &stream_name, const Slice &group_name, const Slice &consumer_name,
+                            const StreamRangeOptions &options, std::vector<StreamEntry> *entries);
 
  private:
   rocksdb::ColumnFamilyHandle *stream_cf_handle_;
@@ -87,6 +89,11 @@ class Stream : public SubKeyScanner {
   static std::string encodeStreamPelEntryMetadataValue(const StreamPelEntryMetadata &consumer_metadata);
   static StreamPelEntryMetadata decodeStreamPelEntryMetadataValue(const std::string &value);
   StreamSubkeyType identifySubkeyType(const rocksdb::Slice &key);
+  rocksdb::Status getStreamConsumerGroupMetadata(const std::string &ns_key, const std::string &group_name,
+                                                 StreamConsumerGroupMetadata *consumer_group_metadata);
+  rocksdb::Status getStreamConsumerMetadata(const std::string &ns_key, const std::string &group_name,
+                                            const std::string &consumer_name,
+                                            StreamConsumerMetadata *consumer_metadata);
 };
 
 }  // namespace redis
