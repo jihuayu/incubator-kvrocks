@@ -610,6 +610,61 @@ void Server::BlockOnStreams(const std::vector<std::string> &keys, const std::vec
   }
 }
 
+void EmplaceConsumerToStreamGroup(const std::string &group, const std::shared_ptr<StreamConsumer> &consumer,
+                                  std::map<std::string, std::set<std::shared_ptr<StreamConsumer>>> &map) {
+  if (auto iter = map.find(group); iter == map.end()) {
+    std::set<std::shared_ptr<StreamConsumer>> consumers;
+    consumers.emplace(consumer);
+    map[group] = consumers;
+  } else {
+    iter->second.emplace(consumer);
+  }
+}
+
+void Server::BlockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys,
+                                 const std::vector<redis::StreamEntryID> &entry_ids, redis::Connection *conn) {
+  std::lock_guard<std::mutex> guard(blocked_stream_group_consumers_mu_);
+
+  IncrBlockedClientNum();
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    auto consumer = std::make_shared<StreamConsumer>(conn->Owner(), conn->GetFD(), conn->GetNamespace(), entry_ids[i]);
+    if (auto iter = blocked_stream_group_consumers_.find(keys[i]); iter == blocked_stream_group_consumers_.end()) {
+      StreamGroupCosumer group_consumer;
+      blocked_stream_group_consumers_.emplace(keys[i], group_consumer);
+      EmplaceConsumerToStreamGroup(group, consumer, iter->second);
+    } else {
+      EmplaceConsumerToStreamGroup(group, consumer, iter->second);
+    }
+  }
+}
+
+void Server::UnblockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys,
+                                   redis::Connection *conn) {
+  std::lock_guard<std::mutex> guard(blocked_stream_group_consumers_mu_);
+
+  DecrBlockedClientNum();
+
+  for (const auto &key : keys) {
+    auto iter_key = blocked_stream_group_consumers_.find(key);
+    if (iter_key == blocked_stream_group_consumers_.end()) continue;
+
+    auto iter_group = iter_key->second.find(key);
+    if (iter_group == iter_key->second.end()) continue;
+
+    for (auto it = iter_group->second.begin(); it != iter_group->second.end(); it++) {
+      auto &consumer_group = *it;
+      if (conn->GetFD() == consumer_group->fd && conn->Owner() == consumer_group->owner) {
+        it = iter_group->second.erase(it);
+
+        if (iter_group->second.empty()) iter_group->second.erase(it);
+        if (iter_key->second.empty()) iter_key->second.erase(iter_group);
+        break;
+      }
+    }
+  }
+}
+
 void Server::UnblockOnStreams(const std::vector<std::string> &keys, redis::Connection *conn) {
   std::lock_guard<std::mutex> guard(blocked_stream_consumers_mu_);
 
@@ -672,6 +727,25 @@ void Server::OnEntryAddedToStream(const std::string &ns, const std::string &key,
       it = iter->second.erase(it);
     } else {
       ++it;
+    }
+  }
+
+  // read group consumers
+  auto group_iter = blocked_stream_group_consumers_.find(key);
+  if (group_iter == blocked_stream_group_consumers_.end() || group_iter->second.empty()) {
+    return;
+  }
+
+  for (auto &it : group_iter->second) {
+    if (it.second.empty()) {
+      auto iter = it.second.begin();
+      auto &consumer = *iter;
+      auto s = consumer->owner->EnableWriteEvent(consumer->fd);
+      if (!s.IsOK()) {
+        LOG(ERROR) << "[server] Failed to enable write event on blocked stream consumer " << consumer->fd << ": "
+                   << s.Msg();
+      }
+      it.second.erase(iter);
     }
   }
 }

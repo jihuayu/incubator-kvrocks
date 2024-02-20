@@ -30,6 +30,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <queue>
 #include <set>
 #include <shared_mutex>
 #include <string>
@@ -209,6 +210,9 @@ class Server {
 
   void BlockOnKey(const std::string &key, redis::Connection *conn);
   void UnblockOnKey(const std::string &key, redis::Connection *conn);
+  void BlockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys,
+                           const std::vector<redis::StreamEntryID> &entry_ids, redis::Connection *conn);
+  void UnblockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys, redis::Connection *conn);
   void BlockOnStreams(const std::vector<std::string> &keys, const std::vector<redis::StreamEntryID> &entry_ids,
                       redis::Connection *conn);
   void UnblockOnStreams(const std::vector<std::string> &keys, redis::Connection *conn);
@@ -363,8 +367,13 @@ class Server {
 
   std::atomic<int> blocked_clients_{0};
 
+  // 可以优化成无锁链表
   std::mutex blocked_stream_consumers_mu_;
   std::map<std::string, std::set<std::shared_ptr<StreamConsumer>>> blocked_stream_consumers_;
+
+  using StreamGroupCosumer = std::map<std::string, std::set<std::shared_ptr<StreamConsumer>>>;
+  std::mutex blocked_stream_group_consumers_mu_;
+  std::map<std::string, StreamGroupCosumer> blocked_stream_group_consumers_;
 
   // threads
   std::shared_mutex works_concurrency_rw_lock_;
