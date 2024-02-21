@@ -19,6 +19,7 @@
  */
 
 #include <memory>
+#include <optional>
 #include <stdexcept>
 
 #include "command_parser.h"
@@ -1136,17 +1137,13 @@ class CommandXReadGroup : public Commander,
         continue;
       }
 
-      redis::StreamRangeOptions options;
-      options.reverse = false;
+      redis::StreamGroupRangeOptions options;
       options.start = ids_[i];
-      options.end = StreamEntryID{UINT64_MAX, UINT64_MAX};
-      options.with_count = with_count_;
       options.count = count_;
       options.exclude_start = true;
-      options.exclude_end = false;
 
       std::vector<StreamEntry> result;
-      auto s = stream_db.Range(streams_[i], options, &result);
+      auto s = stream_db.GroupRead(streams_[i],group_,consumer_, options, &result);
       if (!s.ok() && !s.IsNotFound()) {
         return {Status::RedisExecErr, s.ToString()};
       }
@@ -1190,22 +1187,11 @@ class CommandXReadGroup : public Commander,
     return Status::OK();
   }
 
+  // group block read only read from <
   Status BlockingRead(Server *srv, Connection *conn, redis::Stream *stream_db) {
     if (!with_count_) {
       with_count_ = true;
       count_ = blocked_default_count_;
-    }
-
-    for (size_t i = 0; i < streams_.size(); ++i) {
-      if (latest_marks_[i]) {
-        StreamEntryID last_generated_id;
-        auto s = stream_db->GetLastGeneratedID(streams_[i], &last_generated_id);
-        if (!s.ok()) {
-          return {Status::RedisExecErr, s.ToString()};
-        }
-
-        ids_[i] = last_generated_id;
-      }
     }
 
     srv_ = srv;
@@ -1246,25 +1232,18 @@ class CommandXReadGroup : public Commander,
 
     std::vector<StreamReadResult> results;
 
-    for (size_t i = 0; i < streams_.size(); ++i) {
-      redis::StreamRangeOptions options;
-      options.reverse = false;
-      options.start = ids_[i];
-      options.end = StreamEntryID{UINT64_MAX, UINT64_MAX};
-      options.with_count = with_count_;
+    for (auto & stream : streams_) {
+      redis::StreamGroupRangeOptions options;
       options.count = count_;
-      options.exclude_start = true;
-      options.exclude_end = false;
-
       std::vector<StreamEntry> result;
-      auto s = stream_db.Range(streams_[i], options, &result);
+      auto s = stream_db.GroupRead(stream,group_,consumer_, options, &result);
       if (!s.ok() && !s.IsNotFound()) {
         conn_->Reply(redis::Error("ERR " + s.ToString()));
         return;
       }
 
       if (result.size() > 0) {
-        results.emplace_back(streams_[i], result);
+        results.emplace_back(stream, result);
       }
     }
 

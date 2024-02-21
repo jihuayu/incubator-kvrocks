@@ -1150,7 +1150,6 @@ rocksdb::Status Stream::getStreamConsumerMetadata(const std::string &ns_key, con
   return rocksdb::Status::OK();
 }
 
-
 rocksdb::Status Stream::pelRange(const std::string &ns_key, const StreamMetadata &metadata,
                                  const std::string &group_name, const PelRangeOptions &options,
                                  std::vector<StreamEntryID> &entries) {
@@ -1180,7 +1179,9 @@ rocksdb::Status Stream::pelRange(const std::string &ns_key, const StreamMetadata
       StreamPelEntryMetadata pel_metadata = decodeStreamPelEntryMetadataValue(iter->value().ToString());
       if (pel_metadata.consumer_name != options.consumer_name.value()) continue;
     }
-    entries.push_back(entryIDFromPelInternalKey(iter->key()));
+    StreamEntryID id;
+    auto s = ParseStreamEntryID(iter->key().ToString(), &id);
+    entries.push_back(id);
   }
   return rocksdb::Status::OK();
 }
@@ -1209,6 +1210,7 @@ rocksdb::Status Stream::GroupRead(const std::string &stream_name, const std::str
   StreamMetadata metadata;
   auto s = GetMetadata(stream_name, &metadata);
   if (!s.ok()) return s;
+  LockGuard guard(storage_->GetLockManager(), "GROUP" + ns_key + group_name);
 
   StreamConsumerGroupMetadata group_metadata;
   s = getStreamConsumerGroupMetadata(ns_key, metadata, group_name, &group_metadata);
@@ -1222,45 +1224,43 @@ rocksdb::Status Stream::GroupRead(const std::string &stream_name, const std::str
   // read message from pel
   if (options.start.has_value()) {
     std::vector<StreamEntryID> pel_ids;
-    s = pelRange(ns_key, metadata, group_name,
-                 PelRangeOptions{
-                     .start = options.start.value(),
-                     .end = StreamEntryID::Maximum(),
-                     .count = options.count,
-                     .consumer_name = consumer_name,
-                 },
-                 pel_ids);
+    PelRangeOptions option;
+    option.start = options.start.value();
+    option.end = StreamEntryID::Maximum();
+    option.count = options.count;
+    option.consumer_name = consumer_name;
+    s = pelRange(ns_key, metadata, group_name, option, pel_ids);
     return getValueByStreamEntryIDs(ns_key, metadata, pel_ids, stream_entry);
   }
 
   // read new message
-  s = range(ns_key, metadata,
-            StreamRangeOptions{.start = group_metadata.last_delivered_id,
-                               .end = StreamEntryID::Maximum(),
-                               .count = options.count.value_or(0),
-                               .with_count = options.count.has_value()},
-            &stream_entry);
+  redis::StreamRangeOptions range_option;
+  range_option.start = group_metadata.last_delivered_id;
+  range_option.end = StreamEntryID::Maximum();
+  range_option.count = options.count.value_or(0);
+  range_option.with_count = options.count.has_value();
+  s = range(ns_key, metadata, range_option, &stream_entry);
 
   auto batch = storage_->GetWriteBatchBase();
   WriteBatchLogData log_data(kRedisStream);
   batch->PutLogData(log_data.Encode());
-  StreamEntryID last_entry_id = StreamEntryID::Minimum();
 
-  // write to pel list
+  auto now = util::GetTimeStampMS();
+  StreamEntryID last_entry_id = StreamEntryID::Minimum();
+  // write to pel
   for (auto &item : stream_entry) {
     auto entry_id = StreamEntryID(item.key);
     last_entry_id = entry_id;
     if (options.no_ack) continue;
-    auto meta = StreamPelEntryMetadata{
-        .consumer_name = consumer_name,
-        .last_active = util::GetTimeStampMS(),
-        .active_count = 1,
-    };
+
+    StreamPelEntryMetadata meta;
+    meta.consumer_name = consumer_name;
+    meta.last_active = now;
+    meta.active_count = 1;
     auto key = internalKeyFromPelEntry(ns_key, metadata, group_name, entry_id);
     batch->Put(stream_cf_handle_, key, encodeStreamPelEntryMetadataValue(meta));
   }
 
-  auto now = util::GetTimeStampMS();
   if (!options.no_ack) consumer_metadata.pending_number += stream_entry.size();
   consumer_metadata.last_active = now;
   consumer_metadata.last_idle = now;
