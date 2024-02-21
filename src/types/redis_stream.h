@@ -59,8 +59,9 @@ class Stream : public SubKeyScanner {
   rocksdb::Status GetLastGeneratedID(const Slice &stream_name, StreamEntryID *id);
   rocksdb::Status SetId(const Slice &stream_name, const StreamEntryID &last_generated_id,
                         std::optional<uint64_t> entries_added, std::optional<StreamEntryID> max_deleted_id);
-  rocksdb::Status GroupRead(const Slice &stream_name, const Slice &group_name, const Slice &consumer_name,
-                            const StreamRangeOptions &options, std::vector<StreamEntry> *entries);
+  rocksdb::Status GroupRead(const std::string &stream_name, const std::string &group_name,
+                            const std::string &consumer_name, const StreamGroupRangeOptions &options,
+                            std::vector<StreamEntry> *entries);
 
  private:
   rocksdb::ColumnFamilyHandle *stream_cf_handle_;
@@ -85,14 +86,20 @@ class Stream : public SubKeyScanner {
   static std::string encodeStreamConsumerMetadataValue(const StreamConsumerMetadata &consumer_metadata);
   static StreamConsumerMetadata decodeStreamConsumerMetadataValue(const std::string &value);
   std::string internalKeyFromPelEntry(const std::string &ns_key, const StreamMetadata &metadata,
-                                      const std::string &group_name, const StreamEntryID &entry_id) const;
+                                             const std::string &group_name, const StreamEntryID &entry_id);
+  StreamEntryID entryIDFromPelInternalKey(const rocksdb::Slice &key) const;
+  rocksdb::Status pelRange(const std::string &ns_key, const StreamMetadata &metadata, const std::string &group_name,
+                           const PelRangeOptions &options, std::vector<StreamEntryID> &entries);
+  rocksdb::Status getValueByStreamEntryIDs(const std::string &ns_key, const StreamMetadata &metadata,
+                                          std::vector<StreamEntryID> &ids, std::vector<StreamEntry> &entries);
   static std::string encodeStreamPelEntryMetadataValue(const StreamPelEntryMetadata &consumer_metadata);
   static StreamPelEntryMetadata decodeStreamPelEntryMetadataValue(const std::string &value);
   StreamSubkeyType identifySubkeyType(const rocksdb::Slice &key);
-  rocksdb::Status getStreamConsumerGroupMetadata(const std::string &ns_key, const std::string &group_name,
+  rocksdb::Status getStreamConsumerGroupMetadata(const std::string &ns_key, const StreamMetadata &metadata,
+                                                 const std::string &group_name,
                                                  StreamConsumerGroupMetadata *consumer_group_metadata);
-  rocksdb::Status getStreamConsumerMetadata(const std::string &ns_key, const std::string &group_name,
-                                            const std::string &consumer_name,
+  rocksdb::Status getStreamConsumerMetadata(const std::string &ns_key, const StreamMetadata &metadata,
+                                            const std::string &group_name, const std::string &consumer_name,
                                             StreamConsumerMetadata *consumer_metadata);
 };
 

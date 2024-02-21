@@ -23,7 +23,9 @@
 #include <rocksdb/status.h>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,12 @@ struct StreamEntryID {
 
   StreamEntryID() = default;
   StreamEntryID(uint64_t ms, uint64_t seq) : ms(ms), seq(seq) {}
+
+  explicit StreamEntryID(const std::string &str) {
+    auto x = str.find('-');
+    ms = std::stoull(str.substr(0, x));
+    seq = std::stoull(str.substr(x + 1));
+  }
 
   void Clear() {
     ms = 0;
@@ -60,6 +68,8 @@ struct StreamEntryID {
   bool operator<=(const StreamEntryID &rhs) const { return !(rhs < *this); }
 
   bool operator==(const StreamEntryID &rhs) const { return ms == rhs.ms && seq == rhs.seq; }
+
+  bool operator!=(const StreamEntryID &rhs) const { return ms != rhs.ms || seq != rhs.seq; }
 
   std::string ToString() const { return fmt::format("{}-{}", ms, seq); }
 
@@ -144,6 +154,23 @@ struct StreamRangeOptions {
   StreamEntryID end;
   uint64_t count;
   bool with_count = false;
+  bool reverse = false;
+  bool exclude_start = false;
+  bool exclude_end = false;
+};
+
+struct StreamGroupRangeOptions {
+  std::optional<StreamEntryID> start;
+  std::optional<uint64_t> count;
+  bool exclude_start = false;
+  bool no_ack = false;
+};
+
+struct PelRangeOptions {
+  StreamEntryID start;
+  StreamEntryID end;
+  std::optional<uint64_t> count;
+  std::optional<std::string> consumer_name;
   bool reverse = false;
   bool exclude_start = false;
   bool exclude_end = false;

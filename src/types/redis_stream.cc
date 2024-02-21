@@ -22,14 +22,19 @@
 
 #include <rocksdb/status.h>
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "db_util.h"
 #include "encoding.h"
+#include "storage/redis_metadata.h"
 #include "time_util.h"
+#include "types/redis_stream_base.h"
 
 namespace redis {
 
@@ -253,7 +258,7 @@ StreamConsumerMetadata Stream::decodeStreamConsumerMetadataValue(const std::stri
 }
 
 std::string Stream::internalKeyFromPelEntry(const std::string &ns_key, const StreamMetadata &metadata,
-                                            const std::string &group_name, const StreamEntryID &entry_id) const {
+                                            const std::string &group_name, const StreamEntryID &entry_id) {
   std::string sub_key;
   PutFixed64(&sub_key, group_name.size());
   sub_key += group_name;
@@ -1114,20 +1119,12 @@ rocksdb::Status Stream::SetId(const Slice &stream_name, const StreamEntryID &las
   return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
-rocksdb::Status Stream::getStreamConsumerGroupMetadata(const std::string &ns_key, const std::string &group_name,
+rocksdb::Status Stream::getStreamConsumerGroupMetadata(const std::string &ns_key, const StreamMetadata &metadata,
+                                                       const std::string &group_name,
                                                        StreamConsumerGroupMetadata *consumer_group_metadata) {
-  StreamMetadata metadata;
-  rocksdb::Status s = GetMetadata(ns_key, &metadata);
-  if (!s.ok() && !s.IsNotFound()) {
-    return s;
-  }
-  if (s.IsNotFound()) {
-    return rocksdb::Status::InvalidArgument(errXGroupSubcommandRequiresKeyExist);
-  }
-
   std::string entry_key = internalKeyFromGroupName(ns_key, metadata, group_name);
   std::string get_entry_value;
-  s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
+  auto s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
   if (!s.ok() && !s.IsNotFound()) {
     return s;
   }
@@ -1139,18 +1136,12 @@ rocksdb::Status Stream::getStreamConsumerGroupMetadata(const std::string &ns_key
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Stream::getStreamConsumerMetadata(const std::string &ns_key, const std::string &group_name,
-                                                  const std::string &consumer_name,
+rocksdb::Status Stream::getStreamConsumerMetadata(const std::string &ns_key, const StreamMetadata &metadata,
+                                                  const std::string &group_name, const std::string &consumer_name,
                                                   StreamConsumerMetadata *consumer_metadata) {
-  StreamMetadata metadata;
-  rocksdb::Status s = GetMetadata(ns_key, &metadata);
-  if (!s.ok() && !s.IsNotFound()) return s;
-
-  if (s.IsNotFound()) return rocksdb::Status::InvalidArgument(errXGroupSubcommandRequiresKeyExist);
-
   std::string entry_key = internalKeyFromGroupName(ns_key, metadata, group_name);
   std::string get_entry_value;
-  s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
+  auto s = storage_->Get(rocksdb::ReadOptions(), stream_cf_handle_, entry_key, &get_entry_value);
   if (!s.ok() && !s.IsNotFound()) return s;
 
   if (s.IsNotFound()) return rocksdb::Status::InvalidArgument("NOGROUP No such consumer group " + group_name);
@@ -1159,9 +1150,132 @@ rocksdb::Status Stream::getStreamConsumerMetadata(const std::string &ns_key, con
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Stream::GroupRead(const Slice &stream_name, const Slice &group_name, const Slice &consumer_name,
-                                  const StreamRangeOptions &options, std::vector<StreamEntry> *entries) {
+
+rocksdb::Status Stream::pelRange(const std::string &ns_key, const StreamMetadata &metadata,
+                                 const std::string &group_name, const PelRangeOptions &options,
+                                 std::vector<StreamEntryID> &entries) {
+  std::optional<uint64_t> count = options.count;
+  StreamConsumerMetadata consumer_metadata;
+  if (options.consumer_name.has_value()) {
+    getStreamConsumerMetadata(ns_key, metadata, group_name, options.consumer_name.value(), &consumer_metadata);
+    if (consumer_metadata.pending_number == 0) return rocksdb::Status::OK();
+    if (count.has_value() || count > consumer_metadata.pending_number) {
+      count = std::make_optional(consumer_metadata.pending_number);
+    }
+  }
+
+  auto begin = internalKeyFromPelEntry(ns_key, metadata, group_name, options.start);
+  auto end = internalKeyFromPelEntry(ns_key, metadata, group_name, options.end);
+  rocksdb::ReadOptions read_options = storage_->DefaultScanOptions();
+  LatestSnapShot ss(storage_);
+  read_options.snapshot = ss.GetSnapShot();
+  rocksdb::Slice upper_bound(begin);
+  read_options.iterate_upper_bound = &upper_bound;
+  rocksdb::Slice lower_bound(end);
+  read_options.iterate_lower_bound = &lower_bound;
+
+  auto iter = util::UniqueIterator(storage_, read_options, stream_cf_handle_);
+  while (iter->Valid()) {
+    if (options.consumer_name.has_value()) {
+      StreamPelEntryMetadata pel_metadata = decodeStreamPelEntryMetadataValue(iter->value().ToString());
+      if (pel_metadata.consumer_name != options.consumer_name.value()) continue;
+    }
+    entries.push_back(entryIDFromPelInternalKey(iter->key()));
+  }
   return rocksdb::Status::OK();
+}
+
+rocksdb::Status Stream::getValueByStreamEntryIDs(const std::string &ns_key, const StreamMetadata &metadata,
+                                                 std::vector<StreamEntryID> &ids, std::vector<StreamEntry> &entries) {
+  for (auto &id : ids) {
+    auto key = internalKeyFromEntryID(ns_key, metadata, id);
+    std::string entry_value;
+    auto s = storage_->Get(storage_->DefaultScanOptions(), stream_cf_handle_, key, &entry_value);
+    if (!s.ok()) return s;
+
+    std::vector<std::string> values;
+    auto rv = DecodeRawStreamEntryValue(entry_value, &values);
+    if (!rv.IsOK()) return rocksdb::Status::InvalidArgument(rv.Msg());
+
+    entries.emplace_back(id.ToString(), std::move(values));
+  }
+  return rocksdb::Status::OK();
+}
+
+rocksdb::Status Stream::GroupRead(const std::string &stream_name, const std::string &group_name,
+                                  const std::string &consumer_name, const StreamGroupRangeOptions &options,
+                                  std::vector<StreamEntry> *entries) {
+  std::string ns_key = AppendNamespacePrefix(stream_name);
+  StreamMetadata metadata;
+  auto s = GetMetadata(stream_name, &metadata);
+  if (!s.ok()) return s;
+
+  StreamConsumerGroupMetadata group_metadata;
+  s = getStreamConsumerGroupMetadata(ns_key, metadata, group_name, &group_metadata);
+  if (!s.ok()) return s;
+
+  StreamConsumerMetadata consumer_metadata;
+  s = getStreamConsumerMetadata(ns_key, metadata, group_name, consumer_name, &consumer_metadata);
+  if (!s.ok()) return s;
+
+  std::vector<StreamEntry> stream_entry;
+  // read message from pel
+  if (options.start.has_value()) {
+    std::vector<StreamEntryID> pel_ids;
+    s = pelRange(ns_key, metadata, group_name,
+                 PelRangeOptions{
+                     .start = options.start.value(),
+                     .end = StreamEntryID::Maximum(),
+                     .count = options.count,
+                     .consumer_name = consumer_name,
+                 },
+                 pel_ids);
+    return getValueByStreamEntryIDs(ns_key, metadata, pel_ids, stream_entry);
+  }
+
+  // read new message
+  s = range(ns_key, metadata,
+            StreamRangeOptions{.start = group_metadata.last_delivered_id,
+                               .end = StreamEntryID::Maximum(),
+                               .count = options.count.value_or(0),
+                               .with_count = options.count.has_value()},
+            &stream_entry);
+
+  auto batch = storage_->GetWriteBatchBase();
+  WriteBatchLogData log_data(kRedisStream);
+  batch->PutLogData(log_data.Encode());
+  StreamEntryID last_entry_id = StreamEntryID::Minimum();
+
+  // write to pel list
+  for (auto &item : stream_entry) {
+    auto entry_id = StreamEntryID(item.key);
+    last_entry_id = entry_id;
+    if (options.no_ack) continue;
+    auto meta = StreamPelEntryMetadata{
+        .consumer_name = consumer_name,
+        .last_active = util::GetTimeStampMS(),
+        .active_count = 1,
+    };
+    auto key = internalKeyFromPelEntry(ns_key, metadata, group_name, entry_id);
+    batch->Put(stream_cf_handle_, key, encodeStreamPelEntryMetadataValue(meta));
+  }
+
+  auto now = util::GetTimeStampMS();
+  if (!options.no_ack) consumer_metadata.pending_number += stream_entry.size();
+  consumer_metadata.last_active = now;
+  consumer_metadata.last_idle = now;
+
+  if (!options.no_ack) group_metadata.pending_number += stream_entry.size();
+  if (last_entry_id > group_metadata.last_delivered_id) {
+    group_metadata.last_delivered_id = last_entry_id;
+  }
+
+  std::string group_key = internalKeyFromGroupName(ns_key, metadata, group_name);
+  batch->Put(stream_cf_handle_, group_key, encodeStreamConsumerGroupMetadataValue(group_metadata));
+  auto cunsumer_key_name = internalKeyFromConsumerName(ns_key, metadata, group_name, consumer_name);
+  batch->Put(stream_cf_handle_, cunsumer_key_name, encodeStreamConsumerMetadataValue(consumer_metadata));
+
+  return storage_->Write(storage_->DefaultWriteOptions(), batch->GetWriteBatch());
 }
 
 }  // namespace redis
