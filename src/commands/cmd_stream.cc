@@ -26,6 +26,7 @@
 #include "commander.h"
 #include "error_constants.h"
 #include "event_util.h"
+#include "glog/logging.h"
 #include "server/server.h"
 #include "time_util.h"
 #include "types/redis_stream.h"
@@ -1112,16 +1113,15 @@ class CommandXReadGroup : public Commander,
     for (size_t i = streams_word_idx + 1; i <= streams_word_idx + number_of_streams; ++i) {
       streams_.push_back(args[i]);
       const auto &id_str = args[i + number_of_streams];
-      bool get_latest = id_str == "$";
-      latest_marks_.push_back(get_latest);
+      bool get_new = id_str == ">";
       StreamEntryID id;
-      if (!get_latest) {
+      if (!get_new) {
         auto s = ParseStreamEntryID(id_str, &id);
-        if (!s.IsOK()) {
-          return s;
-        }
+        if (!s.IsOK()) return s;
+        ids_.emplace_back(id);
+      } else {
+        ids_.emplace_back(std::nullopt);
       }
-      ids_.push_back(id);
     }
 
     return Status::OK();
@@ -1133,20 +1133,18 @@ class CommandXReadGroup : public Commander,
     std::vector<redis::StreamReadResult> results;
 
     for (size_t i = 0; i < streams_.size(); ++i) {
-      if (latest_marks_[i]) {
-        continue;
-      }
-
       redis::StreamGroupRangeOptions options;
       options.start = ids_[i];
       options.count = count_;
       options.exclude_start = true;
 
       std::vector<StreamEntry> result;
-      auto s = stream_db.GroupRead(streams_[i],group_,consumer_, options, &result);
+      LOG(INFO)<<111<<std::endl;
+      auto s = stream_db.GroupRead(streams_[i], group_, consumer_, options, result);
       if (!s.ok() && !s.IsNotFound()) {
         return {Status::RedisExecErr, s.ToString()};
       }
+      LOG(INFO)<<222<<std::endl;
 
       if (result.size() > 0) {
         results.emplace_back(streams_[i], result);
@@ -1197,7 +1195,7 @@ class CommandXReadGroup : public Commander,
     srv_ = srv;
     conn_ = conn;
 
-    srv_->BlockOnStreamsGroup(group_, streams_, ids_, conn_);
+    srv_->BlockOnStreamsGroup(group_, streams_, conn_);
 
     auto bev = conn->GetBufferEvent();
     SetCB(bev);
@@ -1232,11 +1230,11 @@ class CommandXReadGroup : public Commander,
 
     std::vector<StreamReadResult> results;
 
-    for (auto & stream : streams_) {
+    for (auto &stream : streams_) {
       redis::StreamGroupRangeOptions options;
       options.count = count_;
       std::vector<StreamEntry> result;
-      auto s = stream_db.GroupRead(stream,group_,consumer_, options, &result);
+      auto s = stream_db.GroupRead(stream, group_, consumer_, options, result);
       if (!s.ok() && !s.IsNotFound()) {
         conn_->Reply(redis::Error("ERR " + s.ToString()));
         return;
@@ -1297,8 +1295,7 @@ class CommandXReadGroup : public Commander,
 
  private:
   std::vector<std::string> streams_;
-  std::vector<StreamEntryID> ids_;
-  std::vector<bool> latest_marks_;
+  std::vector<std::optional<StreamEntryID>> ids_;
   Server *srv_ = nullptr;
   Connection *conn_ = nullptr;
   UniqueEvent timer_;

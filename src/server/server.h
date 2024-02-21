@@ -210,8 +210,7 @@ class Server {
 
   void BlockOnKey(const std::string &key, redis::Connection *conn);
   void UnblockOnKey(const std::string &key, redis::Connection *conn);
-  void BlockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys,
-                           const std::vector<redis::StreamEntryID> &entry_ids, redis::Connection *conn);
+  void BlockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys, redis::Connection *conn);
   void UnblockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys, redis::Connection *conn);
   void BlockOnStreams(const std::vector<std::string> &keys, const std::vector<redis::StreamEntryID> &entry_ids,
                       redis::Connection *conn);

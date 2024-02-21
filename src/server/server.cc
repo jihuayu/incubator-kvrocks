@@ -48,6 +48,7 @@
 #include "string_util.h"
 #include "thread_util.h"
 #include "time_util.h"
+#include "types/redis_stream_base.h"
 #include "version.h"
 #include "worker.h"
 
@@ -622,16 +623,17 @@ void EmplaceConsumerToStreamGroup(const std::string &group, const std::shared_pt
 }
 
 void Server::BlockOnStreamsGroup(const std::string &group, const std::vector<std::string> &keys,
-                                 const std::vector<redis::StreamEntryID> &entry_ids, redis::Connection *conn) {
+                                 redis::Connection *conn) {
   std::lock_guard<std::mutex> guard(blocked_stream_group_consumers_mu_);
 
   IncrBlockedClientNum();
 
-  for (size_t i = 0; i < keys.size(); ++i) {
-    auto consumer = std::make_shared<StreamConsumer>(conn->Owner(), conn->GetFD(), conn->GetNamespace(), entry_ids[i]);
-    if (auto iter = blocked_stream_group_consumers_.find(keys[i]); iter == blocked_stream_group_consumers_.end()) {
+  for (const auto &key : keys) {
+    auto consumer = std::make_shared<StreamConsumer>(conn->Owner(), conn->GetFD(), conn->GetNamespace(),
+                                                     redis::StreamEntryID::Minimum());
+    if (auto iter = blocked_stream_group_consumers_.find(key); iter == blocked_stream_group_consumers_.end()) {
       StreamGroupCosumer group_consumer;
-      blocked_stream_group_consumers_.emplace(keys[i], group_consumer);
+      blocked_stream_group_consumers_.emplace(key, group_consumer);
       EmplaceConsumerToStreamGroup(group, consumer, iter->second);
     } else {
       EmplaceConsumerToStreamGroup(group, consumer, iter->second);

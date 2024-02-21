@@ -32,6 +32,7 @@
 
 #include "db_util.h"
 #include "encoding.h"
+#include "glog/logging.h"
 #include "storage/redis_metadata.h"
 #include "time_util.h"
 #include "types/redis_stream_base.h"
@@ -175,9 +176,9 @@ rocksdb::Status Stream::Add(const Slice &stream_name, const StreamAddOptions &op
 std::string Stream::internalKeyFromGroupName(const std::string &ns_key, const StreamMetadata &metadata,
                                              const std::string &group_name) const {
   std::string sub_key;
+  sub_key += consumerGroupMetadataDelimiter;
   PutFixed64(&sub_key, group_name.size());
   sub_key += group_name;
-  sub_key += consumerGroupMetadataDelimiter;
   std::string entry_key = InternalKey(ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
   return entry_key;
 }
@@ -220,11 +221,11 @@ StreamConsumerGroupMetadata Stream::decodeStreamConsumerGroupMetadataValue(const
 std::string Stream::internalKeyFromConsumerName(const std::string &ns_key, const StreamMetadata &metadata,
                                                 const std::string &group_name, const std::string &consumer_name) const {
   std::string sub_key;
+  sub_key += consumerGroupMetadataDelimiter;
   PutFixed64(&sub_key, group_name.size());
   sub_key += group_name;
   PutFixed64(&sub_key, consumer_name.size());
   sub_key += consumer_name;
-  sub_key += consumerGroupMetadataDelimiter;
   std::string entry_key = InternalKey(ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
   return entry_key;
 }
@@ -260,8 +261,9 @@ StreamConsumerMetadata Stream::decodeStreamConsumerMetadataValue(const std::stri
 std::string Stream::internalKeyFromPelEntry(const std::string &ns_key, const StreamMetadata &metadata,
                                             const std::string &group_name, const StreamEntryID &entry_id) {
   std::string sub_key;
-  PutFixed64(&sub_key, group_name.size());
-  sub_key += group_name;
+  LOG(INFO)<<group_name<<std::endl;
+  sub_key += consumerGroupMetadataDelimiter;
+  PutString(&sub_key, group_name);
   PutFixed64(&sub_key, entry_id.ms);
   PutFixed64(&sub_key, entry_id.seq);
   std::string entry_key = InternalKey(ns_key, sub_key, metadata.version, storage_->IsSlotIdEncoded()).Encode();
@@ -674,9 +676,11 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
     if (!s.ok()) {
       return s.IsNotFound() ? rocksdb::Status::OK() : s;
     }
+    LOG(INFO)<<"wewewe"<<start_key<<std::endl;
 
     std::vector<std::string> values;
     auto rv = DecodeRawStreamEntryValue(entry_value, &values);
+    LOG(INFO)<<"XXXX1"<<std::endl;
     if (!rv.IsOK()) {
       return rocksdb::Status::InvalidArgument(rv.Msg());
     }
@@ -716,9 +720,11 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
     if (options.exclude_end && iter->key().ToString() == end_key) {
       break;
     }
+    LOG(INFO)<<"wewewe "<<iter->value()<<std::endl;
 
     std::vector<std::string> values;
     auto rv = DecodeRawStreamEntryValue(iter->value().ToString(), &values);
+    LOG(INFO)<<"XXXX2"<<std::endl;
     if (!rv.IsOK()) {
       return rocksdb::Status::InvalidArgument(rv.Msg());
     }
@@ -1205,22 +1211,27 @@ rocksdb::Status Stream::getValueByStreamEntryIDs(const std::string &ns_key, cons
 
 rocksdb::Status Stream::GroupRead(const std::string &stream_name, const std::string &group_name,
                                   const std::string &consumer_name, const StreamGroupRangeOptions &options,
-                                  std::vector<StreamEntry> *entries) {
+                                  std::vector<StreamEntry> &stream_entry) {
+  LOG(INFO) << 333 << std::endl;
   std::string ns_key = AppendNamespacePrefix(stream_name);
   StreamMetadata metadata;
-  auto s = GetMetadata(stream_name, &metadata);
+  auto s = GetMetadata(ns_key, &metadata);
+  LOG(INFO) << "Metadata" << s.ToString() << std::endl;
   if (!s.ok()) return s;
   LockGuard guard(storage_->GetLockManager(), "GROUP" + ns_key + group_name);
 
   StreamConsumerGroupMetadata group_metadata;
   s = getStreamConsumerGroupMetadata(ns_key, metadata, group_name, &group_metadata);
+  LOG(INFO) << "GroupMetadata" << s.ToString() << std::endl;
   if (!s.ok()) return s;
 
   StreamConsumerMetadata consumer_metadata;
   s = getStreamConsumerMetadata(ns_key, metadata, group_name, consumer_name, &consumer_metadata);
+  LOG(INFO) << "ConsumerMetadata" << s.ToString() << std::endl;
   if (!s.ok()) return s;
 
-  std::vector<StreamEntry> stream_entry;
+  LOG(INFO) << 444 << std::endl;
+
   // read message from pel
   if (options.start.has_value()) {
     std::vector<StreamEntryID> pel_ids;
@@ -1230,6 +1241,7 @@ rocksdb::Status Stream::GroupRead(const std::string &stream_name, const std::str
     option.count = options.count;
     option.consumer_name = consumer_name;
     s = pelRange(ns_key, metadata, group_name, option, pel_ids);
+    LOG(INFO) << pel_ids.size() << std::endl;
     return getValueByStreamEntryIDs(ns_key, metadata, pel_ids, stream_entry);
   }
 

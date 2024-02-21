@@ -61,7 +61,7 @@ class Stream : public SubKeyScanner {
                         std::optional<uint64_t> entries_added, std::optional<StreamEntryID> max_deleted_id);
   rocksdb::Status GroupRead(const std::string &stream_name, const std::string &group_name,
                             const std::string &consumer_name, const StreamGroupRangeOptions &options,
-                            std::vector<StreamEntry> *entries);
+                            std::vector<StreamEntry> &stream_entry);
 
  private:
   rocksdb::ColumnFamilyHandle *stream_cf_handle_;

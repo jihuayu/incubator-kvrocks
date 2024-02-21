@@ -162,19 +162,23 @@ std::string EncodeStreamEntryValue(const std::vector<std::string> &args) {
 }
 
 Status DecodeRawStreamEntryValue(const std::string &value, std::vector<std::string> *result) {
+    LOG(INFO)<<"boom0 "<<std::endl;
   result->clear();
   rocksdb::Slice s(value);
+    LOG(INFO)<<s.size()<<"  "<<s.ToString()<<std::endl;
 
   while (!s.empty()) {
     uint32_t len = 0;
+    LOG(INFO)<<"boom1"<<std::endl;
     if (!GetVarint32(&s, &len)) {
       return {Status::RedisParseErr, kErrDecodingStreamEntryValueFailure};
     }
-
+    LOG(INFO)<<"boom2 "<<len<<std::endl;
+    LOG(INFO)<<"boom2 "<<s.data()<<std::endl;
     result->emplace_back(s.data(), len);
+    LOG(INFO)<<"boom3"<<std::endl;
     s.remove_prefix(len);
   }
-
   return Status::OK();
 }
 
