@@ -93,7 +93,7 @@ class Stream : public SubKeyScanner {
                                            std::vector<StreamEntryID> &ids, std::vector<StreamEntry> &entries);
   static std::string encodeStreamPelEntryMetadataValue(const StreamPelEntryMetadata &consumer_metadata);
   static StreamPelEntryMetadata decodeStreamPelEntryMetadataValue(const std::string &value);
-  StreamSubkeyType identifySubkeyType(const rocksdb::Slice &key);
+  StreamSubkeyType identifySubkeyType(const rocksdb::Slice &key) const;
   rocksdb::Status getStreamConsumerGroupMetadata(const std::string &ns_key, const StreamMetadata &metadata,
                                                  const std::string &group_name,
                                                  StreamConsumerGroupMetadata *consumer_group_metadata);

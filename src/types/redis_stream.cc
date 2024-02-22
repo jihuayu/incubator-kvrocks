@@ -261,7 +261,7 @@ StreamConsumerMetadata Stream::decodeStreamConsumerMetadataValue(const std::stri
 std::string Stream::internalKeyFromPelEntry(const std::string &ns_key, const StreamMetadata &metadata,
                                             const std::string &group_name, const StreamEntryID &entry_id) {
   std::string sub_key;
-  LOG(INFO)<<group_name<<std::endl;
+  LOG(INFO) << group_name << std::endl;
   sub_key += consumerGroupMetadataDelimiter;
   PutString(&sub_key, group_name);
   PutFixed64(&sub_key, entry_id.ms);
@@ -287,7 +287,7 @@ StreamPelEntryMetadata Stream::decodeStreamPelEntryMetadataValue(const std::stri
   return metadata;
 }
 
-StreamSubkeyType Stream::identifySubkeyType(const rocksdb::Slice &key) {
+StreamSubkeyType Stream::identifySubkeyType(const rocksdb::Slice &key) const {
   InternalKey ikey(key, storage_->IsSlotIdEncoded());
   Slice subkey = ikey.GetSubKey();
   const size_t entry_id_size = sizeof(StreamEntryID);
@@ -665,7 +665,6 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
                               const StreamRangeOptions &options, std::vector<StreamEntry> *entries) const {
   std::string start_key = internalKeyFromEntryID(ns_key, metadata, options.start);
   std::string end_key = internalKeyFromEntryID(ns_key, metadata, options.end);
-
   if (start_key == end_key) {
     if (options.exclude_start || options.exclude_end) {
       return rocksdb::Status::OK();
@@ -676,11 +675,11 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
     if (!s.ok()) {
       return s.IsNotFound() ? rocksdb::Status::OK() : s;
     }
-    LOG(INFO)<<"wewewe"<<start_key<<std::endl;
+    LOG(INFO) << "wewewe" << start_key << std::endl;
 
     std::vector<std::string> values;
     auto rv = DecodeRawStreamEntryValue(entry_value, &values);
-    LOG(INFO)<<"XXXX1"<<std::endl;
+    LOG(INFO) << "XXXX1" << std::endl;
     if (!rv.IsOK()) {
       return rocksdb::Status::InvalidArgument(rv.Msg());
     }
@@ -692,7 +691,6 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
   if ((!options.reverse && options.end < options.start) || (options.reverse && options.start < options.end)) {
     return rocksdb::Status::OK();
   }
-
   std::string next_version_prefix_key =
       InternalKey(ns_key, "", metadata.version + 1, storage_->IsSlotIdEncoded()).Encode();
   std::string prefix_key = InternalKey(ns_key, "", metadata.version, storage_->IsSlotIdEncoded()).Encode();
@@ -713,6 +711,10 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
 
   for (; iter->Valid() && (options.reverse ? iter->key().ToString() >= end_key : iter->key().ToString() <= end_key);
        options.reverse ? iter->Prev() : iter->Next()) {
+    if (identifySubkeyType(iter->key()) != StreamSubkeyType::StreamEntry) {
+      continue;
+    }
+
     if (options.exclude_start && iter->key().ToString() == start_key) {
       continue;
     }
@@ -720,11 +722,12 @@ rocksdb::Status Stream::range(const std::string &ns_key, const StreamMetadata &m
     if (options.exclude_end && iter->key().ToString() == end_key) {
       break;
     }
-    LOG(INFO)<<"wewewe "<<iter->value()<<std::endl;
+
+    LOG(INFO) << "wewewe " << iter->value() << std::endl;
 
     std::vector<std::string> values;
     auto rv = DecodeRawStreamEntryValue(iter->value().ToString(), &values);
-    LOG(INFO)<<"XXXX2"<<std::endl;
+    LOG(INFO) << "XXXX2" << std::endl;
     if (!rv.IsOK()) {
       return rocksdb::Status::InvalidArgument(rv.Msg());
     }
