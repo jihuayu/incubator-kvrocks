@@ -26,10 +26,8 @@ on:
 jobs:
   publish-nightly-docker-image:
     name: Publish nightly Docker image
-    runs-on: ubuntu-20.04
-    if: github.repository_owner == 'apache'
+    runs-on: macos-14
     steps:
-
       - uses: actions/checkout@v4
       - name: Login Docker Hub
         if: (github.event_name != 'pull_request')
@@ -37,9 +35,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         id: buildx
@@ -64,7 +59,7 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64, linux/arm64
+          platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
